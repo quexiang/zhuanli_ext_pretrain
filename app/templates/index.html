@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>专利说明书文本提取工具</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📄 专利说明书文本提取工具</h1>
+      <p>上传专利说明书 PDF（单个或 ZIP 压缩包），自动提取文本并生成 JSONL 格式数据</p>
+    </header>
+
+    <!-- Upload zone -->
+    <div class="drop-zone" id="dropZone">
+      <div class="icon">📁</div>
+      <div class="label">
+        <strong>点击选择文件</strong> 或将文件拖拽到此处
+      </div>
+      <div class="hint">支持 .pdf 单个文件 或 .zip 压缩包（含多个 PDF）</div>
+      <input type="file" id="fileInput" accept=".pdf,.zip">
+    </div>
+
+    <!-- Selected file info -->
+    <div class="file-info" id="fileInfo">
+      <span class="name" id="fileName"></span>
+      <span class="size" id="fileSize"></span>
+      <button class="remove" id="removeFile" title="移除文件">&times;</button>
+    </div>
+
+    <!-- Submit -->
+    <button class="btn-submit" id="btnSubmit" disabled>
+      开始提取
+    </button>
+
+    <!-- Status / progress -->
+    <div class="status-area" id="statusArea">
+      <div class="message" id="statusMessage">
+        <span class="spinner"></span> 处理中，请稍候…
+      </div>
+      <div class="progress-bar" id="progressBar">
+        <div class="fill" id="progressFill"></div>
+      </div>
+      <div class="detail" id="statusDetail"></div>
+    </div>
+
+    <!-- Error -->
+    <div class="msg-error" id="errorMsg"></div>
+
+    <!-- Results -->
+    <div class="results" id="resultsArea">
+      <div class="summary" id="resultSummary"></div>
+      <a class="btn-download" id="downloadLink">⬇ 下载 JSONL 文件</a>
+      <button class="preview-toggle" id="previewToggle">查看预览 ▾</button>
+      <div class="preview-box" id="previewBox"></div>
+    </div>
+
+    <footer>
+      Powered by PaddleOCR + FastAPI &nbsp;·&nbsp; 专利文献预训练数据生成
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      // ── DOM refs ────────────────────────────────────────
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('fileInput');
+      const fileInfo = document.getElementById('fileInfo');
+      const fileName = document.getElementById('fileName');
+      const fileSize = document.getElementById('fileSize');
+      const removeBtn = document.getElementById('removeFile');
+      const btnSubmit = document.getElementById('btnSubmit');
+      const statusArea = document.getElementById('statusArea');
+      const statusMessage = document.getElementById('statusMessage');
+      const statusDetail = document.getElementById('statusDetail');
+      const progressBar = document.getElementById('progressBar');
+      const progressFill = document.getElementById('progressFill');
+      const errorMsg = document.getElementById('errorMsg');
+      const resultsArea = document.getElementById('resultsArea');
+      const resultSummary = document.getElementById('resultSummary');
+      const downloadLink = document.getElementById('downloadLink');
+      const previewToggle = document.getElementById('previewToggle');
+      const previewBox = document.getElementById('previewBox');
+
+      let selectedFile = null;
+      let pollTimer = null;
+
+      // ── Helpers ─────────────────────────────────────────
+      function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+
+      function show(el) { el.classList.add('show'); }
+      function hide(el) { el.classList.remove('show'); }
+
+      function setError(msg) {
+        errorMsg.textContent = msg;
+        show(errorMsg);
+        hide(statusArea);
+        hide(resultsArea);
+      }
+
+      function resetUI() {
+        hide(errorMsg);
+        hide(statusArea);
+        hide(resultsArea);
+        statusMessage.innerHTML = '<span class="spinner"></span> 处理中，请稍候…';
+        progressFill.style.width = '0%';
+        hide(progressBar);
+        statusDetail.textContent = '';
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      }
+
+      // ── File selection ──────────────────────────────────
+      function selectFile(file) {
+        if (!file) return;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext !== 'pdf' && ext !== 'zip') {
+          setError('仅支持 .pdf 和 .zip 文件格式。');
+          return;
+        }
+        selectedFile = file;
+        fileName.textContent = file.name;
+        fileSize.textContent = formatSize(file.size);
+        show(fileInfo);
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = '开始提取';
+        resetUI();
+      }
+
+      dropZone.addEventListener('click', () => fileInput.click());
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) selectFile(e.target.files[0]);
+      });
+
+      // Drag & drop
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) selectFile(e.dataTransfer.files[0]);
+      });
+
+      removeBtn.addEventListener('click', () => {
+        selectedFile = null;
+        fileInput.value = '';
+        hide(fileInfo);
+        btnSubmit.disabled = true;
+        resetUI();
+      });
+
+      // ── Submission ──────────────────────────────────────
+      btnSubmit.addEventListener('click', async () => {
+        if (!selectedFile) return;
+
+        // Reset & show spinner
+        resetUI();
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '<span class="spinner"></span> 提取中…';
+        show(statusArea);
+        hide(errorMsg);
+
+        const isZip = selectedFile.name.endsWith('.zip');
+
+        if (isZip) {
+          // Show progress bar for ZIP
+          show(progressBar);
+          statusMessage.textContent = '正在解压并处理 ZIP 文件…';
+        }
+
+        try {
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+
+          const res = await fetch('/api/extract', {
+            method: 'POST',
+            body: formData,
+          });
+
+          const data = await res.json();
+
+          if (!res.ok) {
+            setError(data.error || data.detail || '请求失败');
+            btnSubmit.disabled = false;
+            btnSubmit.textContent = '开始提取';
+            return;
+          }
+
+          if (isZip && data.task_id) {
+            // Background task – start polling
+            pollTask(data.task_id);
+          } else if (data.filename) {
+            // Single PDF – immediate result
+            showResult(data);
+          } else {
+            setError('未知的服务器响应');
+          }
+        } catch (err) {
+          setError('网络错误：' + err.message);
+        } finally {
+          if (!isZip) {
+            btnSubmit.disabled = false;
+            btnSubmit.textContent = '开始提取';
+          }
+        }
+      });
+
+      // ── Polling for ZIP background task ────────────────
+      function pollTask(taskId) {
+        pollTimer = setInterval(async () => {
+          try {
+            const res = await fetch('/api/status/' + taskId);
+            const data = await res.json();
+
+            if (!res.ok) {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              setError(data.error || '查询状态失败');
+              btnSubmit.disabled = false;
+              btnSubmit.textContent = '开始提取';
+              return;
+            }
+
+            // Update progress
+            if (data.total_files > 0) {
+              const pct = Math.round((data.processed_files / data.total_files) * 100);
+              progressFill.style.width = pct + '%';
+              statusMessage.textContent = `正在处理… ${data.processed_files}/${data.total_files}`;
+              if (data.current_file) {
+                statusDetail.textContent = '当前：' + data.current_file;
+              }
+            }
+
+            if (data.status === 'completed') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              progressFill.style.width = '100%';
+              statusMessage.textContent = '✅ 处理完成';
+
+              // Fetch the actual result to show download
+              showResult({
+                filename: data.output_filename,
+                record_count: data.record_count,
+              });
+              btnSubmit.disabled = false;
+              btnSubmit.textContent = '开始提取';
+            } else if (data.status === 'failed') {
+              clearInterval(pollTimer);
+              pollTimer = null;
+              setError(data.error || '处理失败');
+              btnSubmit.disabled = false;
+              btnSubmit.textContent = '开始提取';
+            }
+          } catch (err) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            setError('轮询失败：' + err.message);
+            btnSubmit.disabled = false;
+            btnSubmit.textContent = '开始提取';
+          }
+        }, 1500);
+      }
+
+      // ── Show results ────────────────────────────────────
+      function showResult(data) {
+        hide(statusArea);
+        show(resultsArea);
+
+        resultSummary.textContent = `✅ 共提取 ${data.record_count} 条文本`;
+
+        // Download link
+        downloadLink.href = '/api/download/' + encodeURIComponent(data.filename);
+
+        // Preview (if available)
+        if (data.preview && data.preview.length > 0) {
+          previewToggle.style.display = 'block';
+          previewBox.textContent = data.preview.map(r =>
+            JSON.stringify(r, null, 2)
+          ).join('\n\n');
+          hide(previewBox);
+        } else {
+          previewToggle.style.display = 'none';
+        }
+      }
+
+      // ── Preview toggle ───────────────────────────────────
+      previewToggle.addEventListener('click', () => {
+        const isHidden = !previewBox.classList.contains('show');
+        previewBox.classList.toggle('show');
+        previewToggle.textContent = isHidden ? '收起预览 ▴' : '查看预览 ▾';
+      });
+
+    })();
+  </script>
+</body>
+</html>
