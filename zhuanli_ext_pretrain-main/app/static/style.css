@@ -1,0 +1,405 @@
+/* ── Document PDF Extractor – Styles ────────────────────────────── */
+
+:root {
+  --color-bg: #f5f7fa;
+  --color-card: #ffffff;
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-accent: #10b981;
+  --color-error: #ef4444;
+  --color-text: #1e293b;
+  --color-muted: #64748b;
+  --color-border: #e2e8f0;
+  --color-drop-border: #cbd5e1;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
+    sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 16px;
+}
+
+/* ── Container ─────────────────────────────── */
+.container {
+  width: 100%;
+  max-width: 680px;
+  background: var(--color-card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 36px 32px;
+}
+
+/* ── Header ───────────────────────────────── */
+header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+header h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  margin-bottom: 6px;
+}
+
+header p {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+/* ── Upload zone ──────────────────────────── */
+.drop-zone {
+  position: relative;
+  border: 2px dashed var(--color-drop-border);
+  border-radius: var(--radius);
+  padding: 40px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  background: #fafbfc;
+}
+
+.drop-zone:hover,
+.drop-zone.dragover {
+  border-color: var(--color-primary);
+  background: #eff6ff;
+}
+
+.drop-zone .icon {
+  font-size: 2.4rem;
+  margin-bottom: 8px;
+}
+
+.drop-zone .label {
+  font-size: 0.95rem;
+  color: var(--color-muted);
+}
+
+.drop-zone .label strong {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.drop-zone .hint {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-top: 6px;
+}
+
+.drop-zone input[type="file"] {
+  display: none;
+}
+
+/* ── Document type selector ───────────────────── */
+.doc-type-selector {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.doc-type-btn {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.doc-type-btn input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.doc-type-btn .label-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.doc-type-btn .desc {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.doc-type-btn.active {
+  border-color: var(--color-primary);
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.doc-type-btn:hover:not(.active) {
+  border-color: var(--color-drop-border);
+  background: #f8fafc;
+}
+
+/* ── Selected file info ───────────────────── */
+.file-info {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-top: 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  font-size: 0.9rem;
+}
+
+.file-info.show {
+  display: flex;
+}
+
+.file-info .name {
+  flex: 1;
+  word-break: break-all;
+}
+
+.file-info .size {
+  color: var(--color-muted);
+  white-space: nowrap;
+  font-size: 0.8rem;
+}
+
+.file-info .remove {
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 2px;
+}
+
+.file-info .remove:hover {
+  color: var(--color-error);
+}
+
+/* ── Submit button ────────────────────────── */
+.btn-submit {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 11px 0;
+  background: var(--color-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-submit:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+}
+
+.btn-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Spinner ──────────────────────────────── */
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2.5px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Status / progress ────────────────────── */
+.status-area {
+  display: none;
+  margin-top: 20px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.status-area.show {
+  display: block;
+}
+
+.status-area .message {
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Progress bar */
+.progress-bar {
+  margin-top: 10px;
+  height: 6px;
+  background: var(--color-border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-bar .fill {
+  height: 100%;
+  width: 0%;
+  background: var(--color-primary);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.status-area .detail {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-top: 6px;
+}
+
+/* ── Results ──────────────────────────────── */
+.results {
+  display: none;
+  margin-top: 20px;
+}
+
+.results.show {
+  display: block;
+}
+
+.results .summary {
+  font-size: 0.9rem;
+  color: var(--color-accent);
+  font-weight: 600;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border-radius: 8px;
+  border: 1px solid #bbf7d0;
+}
+
+.btn-download {
+  display: block;
+  width: 100%;
+  padding: 11px 0;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  text-decoration: none;
+  text-align: center;
+}
+
+.btn-download:hover {
+  background: #059669;
+}
+
+/* Preview */
+.preview-toggle {
+  margin-top: 12px;
+  background: none;
+  border: none;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.preview-toggle:hover {
+  color: var(--color-text);
+}
+
+.preview-box {
+  display: none;
+  margin-top: 8px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 0.8rem;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  line-height: 1.5;
+}
+
+.preview-box.show {
+  display: block;
+}
+
+/* ── Error ────────────────────────────────── */
+.msg-error {
+  margin-top: 16px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: var(--color-error);
+  font-size: 0.9rem;
+  display: none;
+}
+
+.msg-error.show {
+  display: block;
+}
+
+/* ── Footer ───────────────────────────────── */
+footer {
+  margin-top: 24px;
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+/* ── Responsive ───────────────────────────── */
+@media (max-width: 520px) {
+  body {
+    padding: 20px 12px;
+  }
+  .container {
+    padding: 24px 16px;
+  }
+  header h1 {
+    font-size: 1.25rem;
+  }
+  .drop-zone {
+    padding: 28px 14px;
+  }
+}
