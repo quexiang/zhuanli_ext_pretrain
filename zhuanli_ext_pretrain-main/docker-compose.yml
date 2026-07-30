@@ -11,15 +11,16 @@ services:
       - ./outputs:/app/outputs
     environment:
       - MAX_FILE_SIZE=524288000
-      # ── LLM extraction (optional, uncomment to enable) ──
-      # 方式一：使用 LLM_* 命名
-      - LLM_API_BASE=http://59.79.241.152:7000
+      - LLM_API_BASE=http://172.17.128.1:7000
       - LLM_API_KEY=sk-litellmXa304304
       - LLM_MODEL=claude-haiku-4-5-20251001
       - LLM_MAX_TOKENS=16000
       - LLM_USE_LLM=true
-      # 方式二（可选）：使用 ANTHROPIC_* 命名（与 LiteLLM 兼容）
-      # - ANTHROPIC_BASE_URL=http://59.79.241.152:7000
-      # - ANTHROPIC_AUTH_TOKEN=sk-litellmXa304304
-      # - ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME=claude-haiku-4-5-20251001
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
