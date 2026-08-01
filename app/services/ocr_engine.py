@@ -9,9 +9,17 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 
 import numpy as np
 from PIL import Image
+
+# ── Work around Windows PaddlePaddle PIR + oneDNN compiler bugs ──
+#   FLAGS_enable_pir_api=0  →  disable new PIR executor; fall back to old
+#   FLAGS_use_onednn_op=0   →  disable oneDNN in both old and new executors
+#   ref: https://github.com/PaddlePaddle/Paddle/issues/67288
+for _flag in ("FLAGS_enable_pir_api", "FLAGS_use_onednn_op", "FLAGS_use_onednn_graph"):
+    os.environ.setdefault(_flag, "0")
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +65,20 @@ class OCREngine:
     def ocr(self):
         if self._ocr is None:
             logger.info("Initialising PaddleOCR (first call may download models) ...")
+
+            # Ensure PIR and oneDNN are disabled before PaddleOCR imports
+            # Paddle (belt-and-suspenders — module-level env vars may not
+            # propagate to ProcessPoolExecutor workers on Windows spawn).
+            for _flag in ("FLAGS_enable_pir_api", "FLAGS_use_onednn_op", "FLAGS_use_onednn_graph"):
+                os.environ[_flag] = "0"
+
             from paddleocr import PaddleOCR
 
             self._ocr = PaddleOCR(
                 lang="ch",                     # Simplified Chinese
                 use_textline_orientation=True,  # detect & correct rotated text
+                enable_mkldnn=False,           # work around PaddlePaddle 3.3.0+ bug
+                                               #   ref: https://github.com/PaddlePaddle/Paddle/issues/77340
             )
             logger.info("PaddleOCR initialised.")
         return self._ocr
@@ -69,6 +86,31 @@ class OCREngine:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    # Maximum image dimension for PaddleOCR.  Images larger than this
+    # are downscaled to avoid detection timeouts and OOM errors.
+    # PaddleOCR's PP-OCRv6 detection model works best with inputs
+    # whose longest side is ≤ 2400 px.
+    _MAX_IMAGE_DIM = 2400
+
+    def _preprocess_image(self, img: Image.Image) -> np.ndarray:
+        """Resize image if needed, then convert to numpy array.
+
+        Large images (e.g. A4 @ 300 DPI = 2480×3509) cause PaddleOCR
+        detection to time out or produce empty results.  Resizing keeps
+        the longest side ≤ ``_MAX_IMAGE_DIM`` while maintaining aspect ratio.
+        """
+        w, h = img.size
+        longest = max(w, h)
+        if longest > self._MAX_IMAGE_DIM:
+            scale = self._MAX_IMAGE_DIM / longest
+            new_w, new_h = int(w * scale), int(h * scale)
+            logger.info(
+                "Resizing image from %dx%d → %dx%d for OCR (max=%d)",
+                w, h, new_w, new_h, self._MAX_IMAGE_DIM,
+            )
+            img = img.resize((new_w, new_h), Image.LANCZOS)
+        return np.array(img.convert("RGB"))
+
     def process_page(self, img_bytes: bytes) -> str:
         """Run OCR on a single page image.
 
@@ -80,14 +122,17 @@ class OCREngine:
             or an empty string if nothing was recognised.
         """
         img = Image.open(io.BytesIO(img_bytes))
-        img_array = np.array(img.convert("RGB"))
+        img_array = self._preprocess_image(img)
 
         results = self.ocr.predict(img_array)
 
         lines: list[str] = []
         if results:
             for page_result in results:
-                rec_texts = page_result.get("rec_texts", None)
+                # PaddleOCR >= 3.7 returns OCRResult (dict subclass).
+                # Use .get() which works for both dict and dict-like objects.
+                rec_texts = page_result.get("rec_texts") if isinstance(page_result, dict) else getattr(page_result, "rec_texts", None)
+
                 if rec_texts and isinstance(rec_texts, list):
                     for text in rec_texts:
                         if text and text.strip():

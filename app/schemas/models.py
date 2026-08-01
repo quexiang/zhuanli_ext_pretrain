@@ -3,6 +3,12 @@
 from pydantic import BaseModel
 
 
+class ExtractRequest(BaseModel):
+    """Document type for extraction."""
+
+    doc_type: str = "patent"  # "patent" | "standard"
+
+
 class ExtractResponse(BaseModel):
     """Returned when extraction completes synchronously (single PDF)."""
 

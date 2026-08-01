@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import multiprocessing
 import uuid
 import zipfile
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from pathlib import Path
+
+# Fix Docker container — glibc vfork kills child processes, use spawn instead
+multiprocessing.set_start_method("spawn", force=True)
 
 from fastapi import APIRouter, BackgroundTasks, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -17,6 +21,7 @@ from app.config import parallel_config, settings
 from app.schemas.models import ErrorResponse, ExtractResponse, TaskStatus
 from app.services.pdf_extractor import extract_page_images
 from app.services.ocr_engine import OCREngine
+from app.services.standard_processor import process_pdf_bytes as _process_standards
 
 logger = logging.getLogger(__name__)
 
@@ -63,22 +68,46 @@ def _process_pdf_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
     Each worker creates its **own** ``OCREngine`` instance with a fresh
     PaddleOCR model — required because PaddleOCR is not thread-safe.
     """
-    from app.services.text_processor import process_document
+    import logging
+    import traceback
 
-    engine = OCREngine.create_detached()
-    page_images = extract_page_images(pdf_bytes, dpi=settings.ocr_dpi)
-    if not page_images:
-        return []
+    worker_logger = logging.getLogger(__name__)
 
-    full_text = engine.process_pdf(page_images)
-    if not full_text.strip():
-        return []
+    try:
+        from app.services.text_processor import process_document
 
-    return process_document(
-        full_text,
-        min_len=settings.segment_min_len,
-        max_len=settings.segment_max_len,
-        category=settings.category,
+        engine = OCREngine.create_detached()
+        page_images = extract_page_images(pdf_bytes, dpi=settings.ocr_dpi)
+        if not page_images:
+            return []
+
+        full_text = engine.process_pdf(page_images)
+        if not full_text.strip():
+            return []
+
+        return process_document(
+            full_text,
+            min_len=settings.segment_min_len,
+            max_len=settings.segment_max_len,
+            category=settings.category,
+        )
+    except Exception:
+        worker_logger.error(
+            "Worker process failed:\n%s", traceback.format_exc()
+        )
+        raise
+
+
+# ── Standards worker ─────────────────────────────────────────────
+def _process_standards_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
+    """Process a single standard PDF in a subprocess worker.
+
+    Uses adaptive parallel config for chapter-level parallelism.
+    """
+    return _process_standards(
+        pdf_bytes,
+        chunk_size=settings.standard_chunk_size,
+        max_workers=parallel_config.max_workers,
     )
 
 
@@ -147,6 +176,175 @@ async def download_jsonl(filename: str):
     )
 
 
+@router.post(
+    "/extract-standards",
+    response_model=ExtractResponse | TaskStatus,
+    responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+)
+async def extract_standards(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+):
+    """Upload a single standard PDF or ZIP of standards for text extraction.
+
+    Uses direct PDF text extraction (no OCR) with chapter-aware parsing,
+    clause-based chunking, and category inference.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".pdf", ".zip"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Only .pdf and .zip are accepted.",
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    if len(content) > settings.max_file_size:
+        raise HTTPException(status_code=413, detail="File exceeds 500 MB limit.")
+
+    if ext == ".zip":
+        return _handle_standards_zip_upload(
+            content, file.filename, background_tasks
+        )
+    return await _handle_single_standard(content, file.filename)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Standards handlers
+# ═══════════════════════════════════════════════════════════════════
+async def _handle_single_standard(
+    content: bytes,
+    filename: str,
+) -> ExtractResponse:
+    """Process a single standard PDF asynchronously.
+
+    Offloaded to the shared process pool so the async event loop
+    is not blocked by CPU-intensive processing.
+    """
+    from app.services.text_processor import write_jsonl
+
+    loop = asyncio.get_event_loop()
+    records = await loop.run_in_executor(
+        _get_shared_executor(),
+        _process_standards_worker,
+        content,
+    )
+
+    if not records:
+        raise HTTPException(
+            status_code=400,
+            detail="No extractable text found in the standard document.",
+        )
+
+    stem = Path(filename).stem
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"std_{stem}_{ts}.jsonl"
+    out_path = settings.output_dir / out_name
+    write_jsonl(records, out_path)
+
+    return ExtractResponse(
+        filename=out_name,
+        record_count=len(records),
+        preview=records[:3],
+    )
+
+
+def _handle_standards_zip_upload(
+    content: bytes,
+    filename: str,
+    background_tasks: BackgroundTasks | None,
+) -> TaskStatus:
+    """Start background processing for a ZIP archive of standards."""
+    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
+    with open(zip_path, "wb") as f:
+        f.write(content)
+
+    task_id = uuid.uuid4().hex
+    status = TaskStatus(task_id=task_id, status="processing")
+    _task_store[task_id] = status
+
+    if background_tasks:
+        background_tasks.add_task(
+            _process_standards_zip_background, task_id, zip_path
+        )
+    else:
+        _process_standards_zip_background(task_id, zip_path)
+
+    return status
+
+
+def _process_standards_zip_background(task_id: str, zip_path: Path):
+    """Background task: process all PDFs inside the ZIP in parallel."""
+    from app.services.text_processor import write_jsonl
+
+    status = _task_store[task_id]
+    pdf_files: list[tuple[str, bytes]] = []
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for name in zf.namelist():
+                if name.lower().endswith(".pdf"):
+                    pdf_files.append((name, zf.read(name)))
+
+        if not pdf_files:
+            status.status = "failed"
+            status.error = "ZIP contains no PDF files."
+            return
+
+        status.total_files = len(pdf_files)
+        status.processed_files = 0
+
+        all_records: list[dict[str, str]] = []
+        executor = _get_shared_executor()
+        futures = {
+            executor.submit(_process_standards_worker, pdf_bytes): pdf_name
+            for pdf_name, pdf_bytes in pdf_files
+        }
+
+        from concurrent.futures import as_completed
+
+        for future in as_completed(futures):
+            pdf_name = futures[future]
+            try:
+                records = future.result()
+                all_records.extend(records)
+            except Exception as exc:
+                logger.error("Standards worker failed for %s: %s", pdf_name, exc)
+            status.processed_files += 1
+            status.current_file = Path(pdf_name).name
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_name = f"batch_std_{Path(zip_path).stem}_{ts}.jsonl"
+        out_path = settings.output_dir / out_name
+        if all_records:
+            write_jsonl(all_records, out_path)
+        else:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write("")
+
+        status.status = "completed"
+        status.record_count = len(all_records)
+        status.output_filename = out_name
+
+    except zipfile.BadZipFile:
+        status.status = "failed"
+        status.error = "Invalid ZIP file."
+    except Exception as exc:
+        status.status = "failed"
+        status.error = str(exc)
+        logger.exception("Background standards ZIP processing failed.")
+    finally:
+        try:
+            zip_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Single-PDF handler (offloaded to process pool)
 # ═══════════════════════════════════════════════════════════════════
@@ -164,11 +362,18 @@ async def _handle_single_pdf(
     loop = asyncio.get_event_loop()
 
     # Offload OCR + text processing to a worker process
-    records = await loop.run_in_executor(
-        _get_shared_executor(),
-        _process_pdf_worker,
-        content,
-    )
+    try:
+        records = await loop.run_in_executor(
+            _get_shared_executor(),
+            _process_pdf_worker,
+            content,
+        )
+    except Exception as exc:
+        logger.exception("Patent extraction failed for %s", filename)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Extraction failed: {type(exc).__name__}: {exc}",
+        )
 
     if not records:
         raise HTTPException(

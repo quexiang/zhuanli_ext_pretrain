@@ -9,8 +9,8 @@
 <body>
   <div class="container">
     <header>
-      <h1>📄 专利说明书文本提取工具</h1>
-      <p>上传专利说明书 PDF（单个或 ZIP 压缩包），自动提取文本并生成 JSONL 格式数据</p>
+      <h1>📄 文档文本提取工具</h1>
+      <p>上传 PDF 文档，自动提取文本并生成 JSONL 格式预训练数据</p>
     </header>
 
     <!-- Upload zone -->
@@ -21,6 +21,20 @@
       </div>
       <div class="hint">支持 .pdf 单个文件 或 .zip 压缩包（含多个 PDF）</div>
       <input type="file" id="fileInput" accept=".pdf,.zip">
+    </div>
+
+    <!-- Document type selector -->
+    <div class="doc-type-selector" id="docTypeSelector">
+      <label class="doc-type-btn active" data-type="patent">
+        <input type="radio" name="docType" value="patent" checked>
+        <span class="label-text">📄 专利</span>
+        <span class="desc">OCR 识别 + 清洗分段</span>
+      </label>
+      <label class="doc-type-btn" data-type="standard">
+        <input type="radio" name="docType" value="standard">
+        <span class="label-text">📋 标准</span>
+        <span class="desc">文本提取 + 章节解析（支持 ZIP）</span>
+      </label>
     </div>
 
     <!-- Selected file info -->
@@ -58,7 +72,7 @@
     </div>
 
     <footer>
-      Powered by PaddleOCR + FastAPI &nbsp;·&nbsp; 专利文献预训练数据生成
+      Powered by PaddleOCR + FastAPI &nbsp;·&nbsp; 预训练数据生成工具
     </footer>
   </div>
 
@@ -67,6 +81,7 @@
       // ── DOM refs ────────────────────────────────────────
       const dropZone = document.getElementById('dropZone');
       const fileInput = document.getElementById('fileInput');
+      const docTypeSelector = document.getElementById('docTypeSelector');
       const fileInfo = document.getElementById('fileInfo');
       const fileName = document.getElementById('fileName');
       const fileSize = document.getElementById('fileSize');
@@ -85,9 +100,38 @@
       const previewBox = document.getElementById('previewBox');
 
       let selectedFile = null;
+      let docType = 'patent';
       let pollTimer = null;
 
+      // ── Document type selector ─────────────────────────
+      docTypeSelector.addEventListener('click', (e) => {
+        const btn = e.target.closest('.doc-type-btn');
+        if (!btn) return;
+        docType = btn.dataset.type;
+
+        // Update active state
+        docTypeSelector.querySelectorAll('.doc-type-btn').forEach(b => {
+          b.classList.remove('active');
+        });
+        btn.classList.add('active');
+
+        // All types support PDF and ZIP
+        fileInput.setAttribute('accept', '.pdf,.zip');
+        if (docType === 'standard') {
+          btnSubmit.textContent = '开始提取标准';
+        } else {
+          btnSubmit.textContent = '开始提取专利';
+        }
+
+        resetUI();
+      });
+
       // ── Helpers ─────────────────────────────────────────
+      function _getApiEndpoint(docType) {
+        if (docType === 'standard') return '/api/extract-standards';
+        return '/api/extract';
+      }
+
       function formatSize(bytes) {
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -128,7 +172,11 @@
         fileSize.textContent = formatSize(file.size);
         show(fileInfo);
         btnSubmit.disabled = false;
-        btnSubmit.textContent = '开始提取';
+        if (docType === 'standard') {
+          btnSubmit.textContent = '开始提取标准';
+        } else {
+          btnSubmit.textContent = '开始提取专利';
+        }
         resetUI();
       }
 
@@ -172,18 +220,23 @@
         hide(errorMsg);
 
         const isZip = selectedFile.name.endsWith('.zip');
+        // Choose endpoint based on document type
+        const apiEndpoint = _getApiEndpoint(docType);
 
         if (isZip) {
-          // Show progress bar for ZIP
           show(progressBar);
-          statusMessage.textContent = '正在解压并处理 ZIP 文件…';
+          if (docType === 'standard') {
+            statusMessage.textContent = '正在处理标准文档…';
+          } else {
+            statusMessage.textContent = '正在解压并处理 ZIP 文件…';
+          }
         }
 
         try {
           const formData = new FormData();
           formData.append('file', selectedFile);
 
-          const res = await fetch('/api/extract', {
+          const res = await fetch(apiEndpoint, {
             method: 'POST',
             body: formData,
           });
@@ -211,7 +264,7 @@
         } finally {
           if (!isZip) {
             btnSubmit.disabled = false;
-            btnSubmit.textContent = '开始提取';
+            btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
           }
         }
       });
@@ -228,7 +281,7 @@
               pollTimer = null;
               setError(data.error || '查询状态失败');
               btnSubmit.disabled = false;
-              btnSubmit.textContent = '开始提取';
+              btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
               return;
             }
 
@@ -236,7 +289,11 @@
             if (data.total_files > 0) {
               const pct = Math.round((data.processed_files / data.total_files) * 100);
               progressFill.style.width = pct + '%';
-              statusMessage.textContent = `正在处理… ${data.processed_files}/${data.total_files}`;
+              if (docType === 'standard') {
+                statusMessage.textContent = `正在处理标准… ${data.processed_files}/${data.total_files}`;
+              } else {
+                statusMessage.textContent = `正在处理… ${data.processed_files}/${data.total_files}`;
+              }
               if (data.current_file) {
                 statusDetail.textContent = '当前：' + data.current_file;
               }
@@ -260,14 +317,14 @@
               pollTimer = null;
               setError(data.error || '处理失败');
               btnSubmit.disabled = false;
-              btnSubmit.textContent = '开始提取';
+              btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
             }
           } catch (err) {
             clearInterval(pollTimer);
             pollTimer = null;
             setError('轮询失败：' + err.message);
             btnSubmit.disabled = false;
-            btnSubmit.textContent = '开始提取';
+            btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
           }
         }, 1500);
       }

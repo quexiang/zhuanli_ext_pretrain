@@ -8,7 +8,15 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# ═══════════════════════════════════════════════════════════════════
+# MUST be set BEFORE any code that imports paddle (including the
+# ResourceDetector below).  Otherwise paddle reads the flags too late
+# and the PIR oneDNN compiler kicks in on Windows.
+# ═══════════════════════════════════════════════════════════════════
+for _flag in ("FLAGS_enable_pir_api", "FLAGS_use_onednn_op", "FLAGS_use_onednn_graph"):
+    os.environ.setdefault(_flag, "0")
 
 logger = logging.getLogger(__name__)
 
@@ -17,17 +25,20 @@ logger = logging.getLogger(__name__)
 # App settings (unchanged)
 # ═══════════════════════════════════════════════════════════════════
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
     app_name: str = "专利说明书文本提取工具"
     max_file_size: int = 500 * 1024 * 1024  # 500MB
     upload_dir: Path = Path("uploads")
     output_dir: Path = Path("outputs")
-    ocr_dpi: int = 300
+    ocr_dpi: int = 200
     segment_min_len: int = 50  # Note: process_document now defaults to 120
     segment_max_len: int = 2000
     category: str = "专利文献"
-
-    class Config:
-        env_file = ".env"
+    standard_chunk_size: int = 150
 
 
 settings = Settings()
@@ -71,6 +82,11 @@ class ParallelConfig:
     max_workers: int = 1
     batch_size: int = 1
     strategy: str = "serial"  # "cpu_multiprocess" | "gpu_batch" | "serial"
+
+    # ── Standard-specific thresholds (lighter than patent OCR) ──────
+    standard_min_workers: int = 1  # minimum for standards processing
+    standard_ram_per_worker_gb: float = 0.3  # ~300 MB per standard worker
+    standard_max_workers: int = 16  # higher cap for standards
 
     def __str__(self) -> str:
         return (
@@ -276,12 +292,50 @@ class ParallelPlanner:
             strategy="cpu_multiprocess",
         )
 
+    @staticmethod
+    def plan_standard(info: ResourceInfo) -> ParallelConfig:
+        """Compute optimal parallelism for standard-document processing.
+
+        Standards processing is lighter than patent OCR (no PaddleOCR model),
+        so we use lower RAM-per-worker estimate and higher worker cap.
+        Returns a new ParallelConfig with adjusted standard-specific fields.
+        """
+        config = ParallelPlanner.plan(info)  # start with base config
+
+        if info.gpu_available:
+            vram_mb = max(info.gpu_vram_mb, 4096)
+            batch_size = min(max(4, vram_mb // 2048), 16)
+            workers = min(info.gpu_count, 2)
+            config.max_workers = workers
+            config.batch_size = batch_size
+            config.strategy = "gpu_batch"
+            config.standard_max_workers = max(workers * 4, 8)
+            config.standard_min_workers = workers
+            return config
+
+        # CPU path: standards are lightweight, allow more workers
+        cpu_based = max(2, info.cpu_count - 1)  # reserve only 1 core
+        mem_based = max(2, int(info.available_ram_gb / config.standard_ram_per_worker_gb))
+        workers = min(cpu_based, mem_based)
+        workers = max(config.standard_min_workers, workers)
+        workers = min(workers, config.standard_max_workers)
+
+        if workers <= 1 or info.cpu_count <= 2 or info.available_ram_gb < 2:
+            workers = 1
+
+        config.max_workers = max(config.max_workers, workers)
+        config.standard_min_workers = max(config.standard_min_workers, 1)
+        config.standard_max_workers = max(config.standard_max_workers, workers)
+        config.strategy = "cpu_multiprocess"
+
+        return config
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Global singleton: detected once at import time
 # ═══════════════════════════════════════════════════════════════════
 resource_info = ResourceDetector.detect()
-parallel_config = ParallelPlanner.plan(resource_info)
+parallel_config = ParallelPlanner.plan_standard(resource_info)
 
 logger.info("System resources: %s", resource_info)
 logger.info("Parallel config: %s", parallel_config)

@@ -1,11 +1,9 @@
-version: "3.8"
-
 services:
   patent-extractor:
     build: .
     container_name: patent-jsonl-extractor
     ports:
-      - "8020:8020"
+      - "8686:8686"
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
