@@ -1,4 +1,4 @@
-/* ── Patent PDF Extractor – Styles ────────────────────────────── */
+/* ── Document PDF Extractor – Styles ────────────────────────────── */
 
 :root {
   --color-bg: #f5f7fa;
@@ -107,6 +107,56 @@ header p {
 
 .drop-zone input[type="file"] {
   display: none;
+}
+
+/* ── Document type selector ───────────────────── */
+.doc-type-selector {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.doc-type-btn {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 8px;
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.doc-type-btn input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.doc-type-btn .label-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.doc-type-btn .desc {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+}
+
+.doc-type-btn.active {
+  border-color: var(--color-primary);
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.doc-type-btn:hover:not(.active) {
+  border-color: var(--color-drop-border);
+  background: #f8fafc;
 }
 
 /* ── Selected file info ───────────────────── */
