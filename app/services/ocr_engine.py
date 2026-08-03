@@ -95,6 +95,7 @@ class OCREngine:
 
         return "\n".join(lines)
 
+<<<<<<< HEAD
     def process_pdf(
         self,
         page_images: list[bytes],
@@ -105,20 +106,34 @@ class OCREngine:
         Args:
             page_images: Output from ``pdf_extractor.extract_page_images()``.
             progress_callback: Optional callback function(page_num, total_pages).
+=======
+    def process_pdf(self, page_images: list[bytes]) -> str:
+        """Run OCR on all pages of a PDF.
+
+        Inserts a ``\\f`` (form-feed) character between pages so downstream
+        processing can treat it as a hard page boundary.
+
+        Args:
+            page_images: Output from ``pdf_extractor.extract_page_images()``.
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
         Returns:
             Full document text with ``\\f`` between pages.
         """
         all_text: list[str] = []
+<<<<<<< HEAD
         total = len(page_images)
 
         # 开始日志
         logger.info("📄 OCR 开始：共 %d 页", total)
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         for i, img in enumerate(page_images):
             page_text = self.process_page(img).strip()
             if page_text:
                 all_text.append(page_text)
+<<<<<<< HEAD
                 if i < total - 1:
                     all_text.append("\f")  # page separator
 
@@ -136,3 +151,8 @@ class OCREngine:
         logger.info("✅ OCR 完成：%d 页，共提取 %d 字符", total, char_count)
 
         return "\n".join(all_text)
+=======
+                if i < len(page_images) - 1:
+                    all_text.append("\f")  # page separator
+        return "\n".join(all_text)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281

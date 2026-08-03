@@ -4,7 +4,10 @@ Serves the extraction API and the single-page frontend.
 """
 
 import logging
+<<<<<<< HEAD
 from contextlib import asynccontextmanager
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -22,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+<<<<<<< HEAD
     # 生命周期函数，替代旧的 on_event
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -39,6 +43,12 @@ def create_app() -> FastAPI:
         version="1.0.0",
         description="上传专利说明书或标准文献PDF（单个或ZIP包），自动提取文本并生成JSONL格式数据，用于大模型预训练。",
         lifespan=lifespan  # 绑定生命周期
+=======
+    app = FastAPI(
+        title=settings.app_name,
+        version="1.0.0",
+        description="上传专利说明书PDF（单个或ZIP包），自动提取文本并生成JSONL格式数据，用于大模型预训练。",
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     )
 
     # ── Routers ─────────────────────────────────────────────
@@ -58,7 +68,23 @@ def create_app() -> FastAPI:
     async def index():
         return HTMLResponse(_index_html)
 
+<<<<<<< HEAD
     return app
 
 
 app = create_app()
+=======
+    # ── Lifespan ────────────────────────────────────────────
+    @app.on_event("startup")
+    async def startup():
+        logger.info(
+            "%s started — output dir: %s",
+            settings.app_name,
+            settings.output_dir.resolve(),
+        )
+
+    return app
+
+
+app = create_app()
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281

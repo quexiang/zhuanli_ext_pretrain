@@ -3,14 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<<<<<<< HEAD
   <title>说明书文本提取工具</title>
+=======
+  <title>专利说明书文本提取工具</title>
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <div class="container">
     <header>
+<<<<<<< HEAD
       <h1>📄 说明书文本提取工具</h1>
       <p>上传 PDF（单个或 ZIP 压缩包），自动提取文本并生成 JSONL 格式数据</p>
+=======
+      <h1>📄 专利说明书文本提取工具</h1>
+      <p>上传专利说明书 PDF（单个或 ZIP 压缩包），自动提取文本并生成 JSONL 格式数据</p>
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     </header>
 
     <!-- Upload zone -->
@@ -30,6 +39,7 @@
       <button class="remove" id="removeFile" title="移除文件">&times;</button>
     </div>
 
+<<<<<<< HEAD
     <!-- Mode selector -->
     <div class="mode-selector" id="modeSelector">
       <div class="mode-label">提取模式</div>
@@ -53,6 +63,8 @@
       </div>
     </div>
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     <!-- Submit -->
     <button class="btn-submit" id="btnSubmit" disabled>
       开始提取
@@ -81,7 +93,11 @@
     </div>
 
     <footer>
+<<<<<<< HEAD
       Powered by PaddleOCR + FastAPI &nbsp;·&nbsp; 预训练数据生成
+=======
+      Powered by PaddleOCR + FastAPI &nbsp;·&nbsp; 专利文献预训练数据生成
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     </footer>
   </div>
 
@@ -106,6 +122,7 @@
       const downloadLink = document.getElementById('downloadLink');
       const previewToggle = document.getElementById('previewToggle');
       const previewBox = document.getElementById('previewBox');
+<<<<<<< HEAD
       const modePatent = document.getElementById('modePatent');
       const modeStandard = document.getElementById('modeStandard');
       const modeSelector = document.getElementById('modeSelector');
@@ -115,6 +132,11 @@
       let selectedFile = null;
       let pollTimer = null;
       let currentMode = 'patent'; // default
+=======
+
+      let selectedFile = null;
+      let pollTimer = null;
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
       // ── Helpers ─────────────────────────────────────────
       function formatSize(bytes) {
@@ -189,6 +211,7 @@
         resetUI();
       });
 
+<<<<<<< HEAD
       // ── Mode selector ───────────────────────────────────
       function setMode(mode) {
         currentMode = mode;
@@ -210,6 +233,8 @@
       radioPatent.addEventListener('change', () => setMode('patent'));
       radioStandard.addEventListener('change', () => setMode('standard'));
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
       // ── Submission ──────────────────────────────────────
       btnSubmit.addEventListener('click', async () => {
         if (!selectedFile) return;
@@ -232,9 +257,14 @@
         try {
           const formData = new FormData();
           formData.append('file', selectedFile);
+<<<<<<< HEAD
           formData.append('mode', currentMode);
 
           const res = await fetch('/api/extract?mode=' + currentMode, {
+=======
+
+          const res = await fetch('/api/extract', {
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             method: 'POST',
             body: formData,
           });

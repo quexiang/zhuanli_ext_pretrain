@@ -750,6 +750,7 @@ def _split_long_text_fallback(text: str, max_len: int) -> list[str]:
         segments.append(current.strip())
 
     return segments
+<<<<<<< HEAD
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -1069,3 +1070,5 @@ def process_standard_document(
         if text and len(text) >= min_len:
             result.append(rec)
     return result
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281

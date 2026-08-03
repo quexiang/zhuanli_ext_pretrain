@@ -16,8 +16,11 @@ from app.services.text_processor import (
     _remove_claims_footer_blocks,
     _remove_noise_fragments,
     _is_footer_line,
+<<<<<<< HEAD
     clean_standard_text,
     process_standard_document,
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 )
 
 
@@ -292,6 +295,7 @@ class TestEdgeCases:
         assert "[0037]" in result
         assert "[0038]" in result
         assert "况明书" not in result
+<<<<<<< HEAD
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -414,3 +418,5 @@ class TestTextQuality:
         valid, reason = is_valid_text_content(text)
         assert valid is False
         assert "CJK 占比过低" in reason
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281

@@ -66,6 +66,7 @@ header p {
   color: var(--color-muted);
 }
 
+<<<<<<< HEAD
 /* ── Mode selector ────────────────────────── */
 .mode-selector {
   margin-top: 16px;
@@ -158,6 +159,8 @@ header p {
   color: var(--color-primary);
 }
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 /* ── Upload zone ──────────────────────────── */
 .drop-zone {
   position: relative;

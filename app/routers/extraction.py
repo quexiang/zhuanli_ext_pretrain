@@ -15,7 +15,11 @@ from fastapi.responses import FileResponse
 
 from app.config import parallel_config, settings
 from app.schemas.models import ErrorResponse, ExtractResponse, TaskStatus
+<<<<<<< HEAD
 from app.services.pdf_extractor import extract_page_images, extract_text_direct
+=======
+from app.services.pdf_extractor import extract_page_images
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 from app.services.ocr_engine import OCREngine
 
 logger = logging.getLogger(__name__)
@@ -82,6 +86,7 @@ def _process_pdf_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
     )
 
 
+<<<<<<< HEAD
 # app/routers/extraction.py
 
 # app/routers/extraction.py
@@ -187,6 +192,8 @@ def _process_pdf_standard_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
     return [{"text": seg, "category": settings.category} for seg in segments]
 
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 # ═══════════════════════════════════════════════════════════════════
 # Endpoints
 # ═══════════════════════════════════════════════════════════════════
@@ -197,15 +204,21 @@ def _process_pdf_standard_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
 )
 async def extract_pdfs(
     file: UploadFile = File(...),
+<<<<<<< HEAD
     mode: str = "patent",
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     background_tasks: BackgroundTasks = None,
 ):
     """Upload a single PDF or a ZIP archive of PDFs for text extraction.
 
+<<<<<<< HEAD
     - **mode=patent** (default): Scan image PDF → OCR → patent text processing.
     - **mode=standard**: Direct PyMuPDF text → standard cleaning & segmentation.
       Falls back to OCR if no embedded text is found (< 100 chars).
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     - **Single PDF**: processed asynchronously in the shared process pool.
     - **ZIP archive**: processed in the background with multi-process parallelism.
     """
@@ -219,12 +232,15 @@ async def extract_pdfs(
             detail="Unsupported file type. Only .pdf and .zip are accepted.",
         )
 
+<<<<<<< HEAD
     if mode not in ("patent", "standard"):
         raise HTTPException(
             status_code=400,
             detail="Invalid mode. Must be 'patent' or 'standard'.",
         )
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file.")
@@ -233,8 +249,13 @@ async def extract_pdfs(
         raise HTTPException(status_code=413, detail="File exceeds 500 MB limit.")
 
     if ext == ".zip":
+<<<<<<< HEAD
         return _handle_zip_upload(content, file.filename, mode, background_tasks)
     return await _handle_single_pdf(content, file.filename, mode)
+=======
+        return _handle_zip_upload(content, file.filename, background_tasks)
+    return await _handle_single_pdf(content, file.filename)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
 
 @router.get("/status/{task_id}", response_model=TaskStatus)
@@ -269,6 +290,7 @@ async def download_jsonl(filename: str):
 async def _handle_single_pdf(
     content: bytes,
     filename: str,
+<<<<<<< HEAD
     mode: str = "patent",
 ) -> ExtractResponse:
     """Process a single PDF asynchronously in the shared process pool.
@@ -286,15 +308,38 @@ async def _handle_single_pdf(
     records = await loop.run_in_executor(
         _get_shared_executor(),
         worker,
+=======
+) -> ExtractResponse:
+    """Process a single PDF asynchronously in the shared process pool.
+
+    The CPU-intensive OCR runs in a subprocess worker so the async
+    event loop is not blocked.
+    """
+    from app.services.text_processor import process_document, write_jsonl
+
+    loop = asyncio.get_event_loop()
+
+    # Offload OCR + text processing to a worker process
+    records = await loop.run_in_executor(
+        _get_shared_executor(),
+        _process_pdf_worker,
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         content,
     )
 
     if not records:
+<<<<<<< HEAD
         if mode == "patent":
             detail = "OCR produced no text. The PDF may be unreadable."
         else:
             detail = "No text extracted. The PDF may contain only images and OCR is unavailable."
         raise HTTPException(status_code=400, detail=detail)
+=======
+        raise HTTPException(
+            status_code=400,
+            detail="OCR produced no text. The PDF may be unreadable.",
+        )
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
     # Write output file (fast I/O, stay in async context)
     stem = Path(filename).stem
@@ -318,8 +363,12 @@ async def _handle_single_pdf(
 def _handle_zip_upload(
     content: bytes,
     filename: str,
+<<<<<<< HEAD
     mode: str = "patent",
     background_tasks: BackgroundTasks | None = None,
+=======
+    background_tasks: BackgroundTasks | None,
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 ) -> TaskStatus:
     """Start background processing for a ZIP archive."""
     zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
@@ -331,14 +380,24 @@ def _handle_zip_upload(
     _task_store[task_id] = status
 
     if background_tasks:
+<<<<<<< HEAD
         background_tasks.add_task(_process_zip_background, task_id, zip_path, mode)
     else:
         _process_zip_background(task_id, zip_path, mode)
+=======
+        background_tasks.add_task(_process_zip_background, task_id, zip_path)
+    else:
+        _process_zip_background(task_id, zip_path)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
     return status
 
 
+<<<<<<< HEAD
 def _process_zip_background(task_id: str, zip_path: Path, mode: str = "patent"):
+=======
+def _process_zip_background(task_id: str, zip_path: Path):
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     """Background task: process all PDFs inside the ZIP in parallel.
 
     Uses a ``ProcessPoolExecutor`` sized by the adaptive parallel config.
@@ -346,8 +405,11 @@ def _process_zip_background(task_id: str, zip_path: Path, mode: str = "patent"):
     """
     from app.services.text_processor import write_jsonl
 
+<<<<<<< HEAD
     worker = _process_pdf_worker if mode == "patent" else _process_pdf_standard_worker
 
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     status = _task_store[task_id]
     pdf_files: list[tuple[str, bytes]] = []
 
@@ -370,7 +432,11 @@ def _process_zip_background(task_id: str, zip_path: Path, mode: str = "patent"):
         all_records: list[dict[str, str]] = []
         executor = _get_shared_executor()
         futures = {
+<<<<<<< HEAD
             executor.submit(worker, pdf_bytes): pdf_name
+=======
+            executor.submit(_process_pdf_worker, pdf_bytes): pdf_name
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             for pdf_name, pdf_bytes in pdf_files
         }
 

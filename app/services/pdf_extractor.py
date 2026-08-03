@@ -65,6 +65,7 @@ def get_pdf_info(pdf_bytes: bytes) -> dict:
             info["has_text"] = True
     doc.close()
     return info
+<<<<<<< HEAD
 
 
 def extract_text_direct(pdf_bytes: bytes) -> str:
@@ -94,3 +95,5 @@ def extract_text_direct(pdf_bytes: bytes) -> str:
         return ""
 
     return "\f".join(parts)
+=======
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281

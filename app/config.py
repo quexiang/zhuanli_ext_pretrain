@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+<<<<<<< HEAD
 from dataclasses import dataclass
+=======
+from dataclasses import dataclass, field
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 from pathlib import Path
 
 from pydantic_settings import BaseSettings
@@ -14,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 # ═══════════════════════════════════════════════════════════════════
+<<<<<<< HEAD
 # App settings
 # ═══════════════════════════════════════════════════════════════════
 class Settings(BaseSettings):
@@ -33,6 +38,19 @@ class Settings(BaseSettings):
     @property
     def category(self) -> str:
         return "标准文献" if self.mode == "standard" else "专利文献"
+=======
+# App settings (unchanged)
+# ═══════════════════════════════════════════════════════════════════
+class Settings(BaseSettings):
+    app_name: str = "专利说明书文本提取工具"
+    max_file_size: int = 500 * 1024 * 1024  # 500MB
+    upload_dir: Path = Path("uploads")
+    output_dir: Path = Path("outputs")
+    ocr_dpi: int = 300
+    segment_min_len: int = 50  # Note: process_document now defaults to 120
+    segment_max_len: int = 2000
+    category: str = "专利文献"
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 
     class Config:
         env_file = ".env"
@@ -46,20 +64,40 @@ settings.output_dir.mkdir(exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
+<<<<<<< HEAD
 # Resource & parallel configuration (保持原有不变)
 # ═══════════════════════════════════════════════════════════════════
 @dataclass
 class ResourceInfo:
+=======
+# Resource & parallel configuration data classes
+# ═══════════════════════════════════════════════════════════════════
+@dataclass
+class ResourceInfo:
+    """Runtime-detected system resources."""
+
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     cpu_count: int = 1
     total_ram_gb: float = 1.0
     available_ram_gb: float = 1.0
     gpu_available: bool = False
     gpu_count: int = 0
     gpu_vram_mb: int = 0
+<<<<<<< HEAD
     paddle_backend: str = "cpu"
 
     def __str__(self) -> str:
         gpu_str = f"{self.gpu_count}×GPU ({self.gpu_vram_mb}MB)" if self.gpu_available else "none"
+=======
+    paddle_backend: str = "cpu"  # "cpu" | "gpu" | "mps"
+
+    def __str__(self) -> str:
+        gpu_str = (
+            f"{self.gpu_count}×GPU ({self.gpu_vram_mb}MB)"
+            if self.gpu_available
+            else "none"
+        )
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         return (
             f"ResourceInfo(cpu={self.cpu_count}, ram={self.available_ram_gb:.1f}/{self.total_ram_gb:.1f}GB, "
             f"gpu={gpu_str}, paddle={self.paddle_backend})"
@@ -68,6 +106,7 @@ class ResourceInfo:
 
 @dataclass
 class ParallelConfig:
+<<<<<<< HEAD
     max_workers: int = 1
     batch_size: int = 1
     strategy: str = "serial"
@@ -81,10 +120,43 @@ class ResourceDetector:
     def _get_ram_gb() -> tuple[float, float]:
         try:
             import psutil
+=======
+    """Optimal parallelism configuration computed from resources."""
+
+    max_workers: int = 1
+    batch_size: int = 1
+    strategy: str = "serial"  # "cpu_multiprocess" | "gpu_batch" | "serial"
+
+    def __str__(self) -> str:
+        return (
+            f"ParallelConfig(strategy={self.strategy}, workers={self.max_workers}, "
+            f"batch={self.batch_size})"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# System resource detector
+# ═══════════════════════════════════════════════════════════════════
+class ResourceDetector:
+    """Detect available system resources at runtime.
+
+    Checks CPU cores, RAM, GPU (CUDA / ROCm / MPS), and PaddlePaddle backend.
+    All methods are static; call ``ResourceDetector.detect()`` once at startup.
+    """
+
+    @staticmethod
+    def _get_ram_gb() -> tuple[float, float]:
+        """Return ``(total_gb, available_gb)`` or a safe estimate."""
+        # 1) psutil (cross-platform, best)
+        try:
+            import psutil
+
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             mem = psutil.virtual_memory()
             return mem.total / 1e9, mem.available / 1e9
         except ImportError:
             pass
+<<<<<<< HEAD
         try:
             import subprocess
             result = subprocess.run(["sysctl", "hw.memsize"], capture_output=True, text=True, timeout=5)
@@ -93,6 +165,25 @@ class ResourceDetector:
                 return total_bytes / 1e9, total_bytes * 0.7 / 1e9
         except Exception:
             pass
+=======
+
+        # 2) sysctl (macOS)
+        try:
+            import subprocess
+
+            result = subprocess.run(
+                ["sysctl", "hw.memsize"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                total_bytes = int(result.stdout.strip().split()[1])
+                # macOS doesn't report "available" easily; assume 70% free
+                return total_bytes / 1e9, total_bytes * 0.7 / 1e9
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError, IndexError):
+            pass
+
+        # 3) /proc/meminfo (Linux containers)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         try:
             with open("/proc/meminfo") as f:
                 data = f.read()
@@ -107,14 +198,33 @@ class ResourceDetector:
                 return total_kb / 1e6, (avail_kb or total_kb) / 1e6
         except OSError:
             pass
+<<<<<<< HEAD
+=======
+
+        # 4) Fallback: assume 1 GB (safe minimal)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         return 1.0, 1.0
 
     @staticmethod
     def _check_nvidia_gpu() -> tuple[int, int]:
+<<<<<<< HEAD
         try:
             result = subprocess.run(
                 ["nvidia-smi", "--query-gpu=count,memory.total", "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=10
+=======
+        """Return ``(count, vram_mb_per_gpu)`` via ``nvidia-smi``."""
+        try:
+            result = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=count,memory.total",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             )
             if result.returncode == 0 and result.stdout.strip():
                 lines = result.stdout.strip().splitlines()
@@ -123,15 +233,29 @@ class ResourceDetector:
                     parts = line.split(", ")
                     if len(parts) >= 2:
                         total_vram += int(parts[1].strip())
+<<<<<<< HEAD
                 return len(lines), total_vram // len(lines) if len(lines) else 0
         except Exception:
+=======
+                count = len(lines)
+                avg_vram = total_vram // count if count else 0
+                return count, avg_vram
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             pass
         return 0, 0
 
     @staticmethod
     def _check_gpu_paddle() -> tuple[bool, str]:
+<<<<<<< HEAD
         try:
             import paddle
+=======
+        """Check if PaddlePaddle detects GPU support."""
+        try:
+            import paddle
+
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             if paddle.is_compiled_with_cuda():
                 return True, "gpu"
             device = paddle.device.get_device()
@@ -145,43 +269,112 @@ class ResourceDetector:
 
     @staticmethod
     def detect() -> ResourceInfo:
+<<<<<<< HEAD
         cpu_count = os.cpu_count() or 1
         total_ram, avail_ram = ResourceDetector._get_ram_gb()
+=======
+        """Detect all system resources and return a ``ResourceInfo``."""
+        cpu_count = os.cpu_count() or 1
+        total_ram, avail_ram = ResourceDetector._get_ram_gb()
+
+        # GPU detection
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         gpu_available_paddle, backend = ResourceDetector._check_gpu_paddle()
         gpu_count, gpu_vram = (0, 0)
         if gpu_available_paddle:
             gpu_count, gpu_vram = ResourceDetector._check_nvidia_gpu()
             if gpu_count == 0:
+<<<<<<< HEAD
                 gpu_count = 1
                 gpu_vram = 8192
+=======
+                gpu_count = 1  # Paddle says GPU is available but nvidia-smi failed
+                gpu_vram = 8192  # assume 8GB default
+
+        gpu_available = gpu_count > 0
+
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         return ResourceInfo(
             cpu_count=cpu_count,
             total_ram_gb=total_ram,
             available_ram_gb=avail_ram,
+<<<<<<< HEAD
             gpu_available=gpu_count > 0,
+=======
+            gpu_available=gpu_available,
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
             gpu_count=gpu_count,
             gpu_vram_mb=gpu_vram,
             paddle_backend=backend,
         )
 
 
+<<<<<<< HEAD
 class ParallelPlanner:
     _OCR_RAM_PER_WORKER_GB = 1.8
     _CPU_RESERVE = 2
+=======
+# ═══════════════════════════════════════════════════════════════════
+# Parallel strategy planner
+# ═══════════════════════════════════════════════════════════════════
+class ParallelPlanner:
+    """Compute the optimal parallelism configuration from system resources."""
+
+    # Conservative RAM estimate per PaddleOCR worker instance (GB)
+    _OCR_RAM_PER_WORKER_GB = 1.8
+
+    # Reserve CPU cores for system / I/O
+    _CPU_RESERVE = 2
+
+    # Absolute upper limit on CPU workers (diminishing returns beyond this)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
     _MAX_CPU_WORKERS = 8
 
     @staticmethod
     def plan(info: ResourceInfo) -> ParallelConfig:
+<<<<<<< HEAD
         if info.gpu_available:
             vram_mb = max(info.gpu_vram_mb, 4096)
             batch_size = min(max(4, vram_mb // 2048), 16)
             return ParallelConfig(max_workers=min(info.gpu_count, 2), batch_size=batch_size, strategy="gpu_batch")
 
+=======
+        """Select optimal parallelism based on detected resources.
+
+        Strategy selection
+        -------------------
+        * **gpu_batch**: GPU is available (CUDA).  Use 1-2 workers (one per GPU),
+          large image batches per ``predict()`` call.  GPU inference is fast,
+          so few workers are needed.
+
+        * **cpu_multiprocess**: No GPU.  Use N workers based on CPU count and
+          available RAM.  Each worker is a separate process with its own
+          PaddleOCR instance.  Pages within a PDF are OCR'd sequentially in
+          that worker.
+
+        * **serial**: Very limited resources (≤ 2 cores or ≤ 4 GB RAM).
+          Single-process sequential processing.
+        """
+        # ── GPU path ──────────────────────────────────────────────
+        if info.gpu_available:
+            vram_mb = max(info.gpu_vram_mb, 4096)  # at least 4 GB
+            # Larger VRAM → larger batches
+            batch_size = min(max(4, vram_mb // 2048), 16)
+            workers = min(info.gpu_count, 2)
+            return ParallelConfig(
+                max_workers=workers,
+                batch_size=batch_size,
+                strategy="gpu_batch",
+            )
+
+        # ── CPU path ──────────────────────────────────────────────
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
         cpu_based = max(1, info.cpu_count - ParallelPlanner._CPU_RESERVE)
         mem_based = max(1, int(info.available_ram_gb / ParallelPlanner._OCR_RAM_PER_WORKER_GB))
         workers = min(cpu_based, mem_based)
         workers = max(1, workers)
 
+<<<<<<< HEAD
         if workers <= 1 or info.cpu_count <= 2 or info.available_ram_gb < 4:
             return ParallelConfig(max_workers=1, batch_size=1, strategy="serial")
 
@@ -189,8 +382,35 @@ class ParallelPlanner:
         return ParallelConfig(max_workers=workers, batch_size=1, strategy="cpu_multiprocess")
 
 
+=======
+        # Fall back to serial if resources are very limited
+        if workers <= 1 or info.cpu_count <= 2 or info.available_ram_gb < 4:
+            return ParallelConfig(
+                max_workers=1,
+                batch_size=1,
+                strategy="serial",
+            )
+
+        # Cap to prevent diminishing returns
+        workers = min(workers, ParallelPlanner._MAX_CPU_WORKERS)
+
+        return ParallelConfig(
+            max_workers=workers,
+            batch_size=1,
+            strategy="cpu_multiprocess",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Global singleton: detected once at import time
+# ═══════════════════════════════════════════════════════════════════
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
 resource_info = ResourceDetector.detect()
 parallel_config = ParallelPlanner.plan(resource_info)
 
 logger.info("System resources: %s", resource_info)
+<<<<<<< HEAD
 logger.info("Parallel config: %s", parallel_config)
+=======
+logger.info("Parallel config: %s", parallel_config)
+>>>>>>> 9652865fbd6f3bd0c7da69f3370098de75f83281
