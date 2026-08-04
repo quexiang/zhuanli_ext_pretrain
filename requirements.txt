@@ -2,10 +2,17 @@ fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 python-multipart>=0.0.6
 PyMuPDF>=1.23.0
-paddlepaddle>=2.6.0
-paddleocr>=2.7.0
+# ── OCR backend ─────────────────────────────────────────────────
+# PaddlePaddle GPU 3.x is NOT on PyPI — install from the official index:
+#   pip install paddlepaddle-gpu>=3.0.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu118/
+paddlepaddle-gpu>=3.0.0
+paddleocr>=3.0.0
+# ────────────────────────────────────────────────────────────────
 Pillow>=10.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0
 psutil>=5.9.0
 python-dotenv>=1.0.0
+httpx>=0.27.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0

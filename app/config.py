@@ -21,10 +21,23 @@ class Settings(BaseSettings):
     max_file_size: int = 500 * 1024 * 1024  # 500MB
     upload_dir: Path = Path("uploads")
     output_dir: Path = Path("outputs")
-    ocr_dpi: int = 300
-    segment_min_len: int = 50  # Note: process_document now defaults to 120
+    download_dir: Path = Path("downloads")
+    ocr_dpi: int = 150
+    segment_min_len: int = 120  # minimum chars per output record (matches process_document default)
     segment_max_len: int = 2000
     category: str = "专利文献"
+    regulation_category: str = "法规文本"
+
+    # ── URL download settings ──────────────────────────────
+    url_fetch_timeout: int = 60               # download timeout (seconds)
+    url_fetch_connect_timeout: int = 10       # connection timeout (seconds)
+    url_fetch_max_retries: int = 3            # max retry attempts
+    url_max_file_size: int = 100 * 1024 * 1024  # max downloaded file size (100MB)
+    user_agent: str = (
+        "Mozilla/5.0 (compatible; PatentExtractor/1.0; "
+        "+https://github.com/patent-extractor)"
+    )
+    html_extraction_mode: str = "extract"  # "extract" | "skip" | "raw"
 
     class Config:
         env_file = ".env"
@@ -35,6 +48,7 @@ settings = Settings()
 # Ensure directories exist
 settings.upload_dir.mkdir(exist_ok=True)
 settings.output_dir.mkdir(exist_ok=True)
+settings.download_dir.mkdir(exist_ok=True)
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -174,8 +188,6 @@ class ResourceDetector:
             device = paddle.device.get_device()
             if "gpu" in device:
                 return True, "gpu"
-            return False, "cpu"
-        except ImportError:
             return False, "cpu"
         except Exception:
             return False, "cpu"

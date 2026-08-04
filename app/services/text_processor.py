@@ -87,10 +87,13 @@ _COMPANY_LINE_RE = re.compile(
 )
 
 # Person-name-only lines: "孙玉华 郭建光 姚晓涛 刘伟光"
-# Matches 2+ Chinese name groups separated by spaces (each 2-4 chars)
+# Matches 3+ Chinese name groups separated by spaces (each 2-4 chars).
+# Requires at least 3 names to avoid false positives on two-word phrases.
+# Also rejects groups of single characters (e.g. "的 了 是") — each
+# name component must be 2-4 CJK chars.
 _PERSON_NAME_LINE_RE = re.compile(
     r"^\s*[一-鿿]{2,4}"                           # first name: "孙玉华"
-    r"(?:\s+[一-鿿]{2,4}){1,6}"                   # more names: " 郭建光 姚晓涛"
+    r"(?:\s+[一-鿿]{2,4}){2,6}"                   # at least 2 more names: " 郭建光 姚晓涛"
     r"\s*$",
     re.MULTILINE,
 )
@@ -153,7 +156,7 @@ _ISOLATED_NOISE_RE = re.compile(
 
 # Lines that are > 80% special characters (garbled figure text)
 _GARBLED_LINE_CLEAN_RE = re.compile(
-    r"^\s*[．。、，；：、？！\-＝=╋\+\|/\\>\s\d]{4,}\s*$",
+    r"^\s*[．。、，；：、？！\-＝=╋\+\|/\\>\s\d]{6,}\s*$",
     re.MULTILINE,
 )
 
@@ -176,21 +179,27 @@ _AGENT_INLINE_RE = re.compile(
     r"\d+\s*代理人\S+"
 )
 
-# Patent boilerplate endings (generic legal text, not bidding-specific)
-_BOILERPLATE_RE = re.compile(
-    r"(?:"
-    r"以上所述仅为本发明的较佳实施例"
-    r"|本发明的保护范围由所附权利要求"
-    r"|凡依本发明申请范围"
-    r"|应当理解的是，本申请中所述实施例仅用以说明"
-    r"|对于本领域技术人员而言，显然本发明不限于上述"
-    r"|在不脱离本发明的精神或基本特征"
-    r"|在不脱离本发明设计思想的前提下"
-    r"|任何熟习相关技艺者"
-    r"|因此，无论从哪一点来看"
-    r"|本发明的范围由所附权利要求"
-    r"|但均应涵盖在本发明的保护范围"
-    r")"
+# Patent boilerplate endings (generic legal text, not bidding-specific).
+# Each alternative matches from the key phrase through to the sentence end (。),
+# so that ``.sub("", text)`` removes the entire boilerplate sentence, not just
+# the leading characters.
+_BOILERPLATE_STARTS = [
+    "以上所述仅为本发明的较佳实施例",
+    "本发明的保护范围由所附权利要求",
+    "凡依本发明申请范围",
+    "应当理解的是，本申请中所述实施例仅用以说明",
+    "对于本领域技术人员而言，显然本发明不限于上述",
+    "在不脱离本发明的精神或基本特征",
+    "在不脱离本发明设计思想的前提下",
+    "任何熟习相关技艺者",
+    "因此，无论从哪一点来看",
+    "本发明的范围由所附权利要求",
+    "但均应涵盖在本发明的保护范围",
+]
+
+_BOILERPLATE_LINE_RE = re.compile(
+    r"^(?:" + "|".join(re.escape(s) for s in _BOILERPLATE_STARTS) + r")[^。]*[。]?",
+    re.MULTILINE,
 )
 
 # Standalone generic patent info lines (entire line removal)
@@ -201,15 +210,6 @@ _GENERIC_PATENT_LINE_RE = re.compile(
     re.MULTILINE,
 )
 
-# Bidding-related keywords for relevance filtering
-_BIDDING_KEYWORDS = [
-    "招投标", "招标", "投标", "中标", "评标", "开标",
-    "标书", "竞价", "供应商", "招标人", "投标人",
-    "评标委员会", "保证金", "中标方", "定标",
-    "电子招投标", "招标文件", "投标文件",
-    "招标公告", "中标公示", "流标",
-]
-
 
 # ═══════════════════════════════════════════════════════════════════
 # Public API
@@ -219,12 +219,23 @@ def process_document(
     min_len: int = 120,
     max_len: int = 2000,
     category: str = "专利文献",
+    source: str = "local_pdf",
+    source_url: str = "",
 ) -> list[dict[str, str]]:
-    """Full pipeline: clean → segment → wrap into dicts, with quality filters."""
+    """Full pipeline: clean → segment → wrap into dicts, with quality filters.
+
+    Args:
+        source: Origin type — ``"local_pdf"``, ``"zip_pdf"``, ``"http_pdf"``,
+                ``"http_html"``, or ``"url_batch"``.
+        source_url: Original download URL (empty for local uploads).
+    """
     cleaned = clean_text(raw_text)
     segments = segment_text(cleaned, min_len, max_len)
-    records = [{"text": seg, "category": category} for seg in segments]
-    records = _filter_quality(records)
+    records = [
+        {"text": seg, "category": category}
+        for seg in segments
+    ]
+    records = _filter_quality(records, min_len)
     return records
 
 
@@ -266,7 +277,6 @@ def clean_text(text: str) -> str:
     text = _BIBLIOGRAPHIC_RE.sub("", text)
     text = _BIBLIOGRAPHIC_HEADER_RE.sub("", text)
     text = _IPC_CLASS_RE.sub("", text)
-    text = _COMPANY_LINE_RE.sub("", text)
     text = _CN_ID_RE.sub("", text)
     text = _GARBLED_CN_LINE_RE.sub("", text)
     text = _GARBAGE_LINE_RE.sub("", text)
@@ -276,7 +286,7 @@ def clean_text(text: str) -> str:
     # Stage 4: Inline pattern removal (page count, agent info, boilerplate)
     text = _PAGE_COUNT_INLINE_RE.sub("", text)
     text = _AGENT_INLINE_RE.sub("", text)
-    text = _BOILERPLATE_RE.sub("", text)
+    text = _BOILERPLATE_LINE_RE.sub("", text)
     text = _GENERIC_PATENT_LINE_RE.sub("", text)
 
     # Stage 5: Standalone noise fragments
@@ -292,15 +302,52 @@ def clean_text(text: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Shared mojibake (garbled text) detection
+# ═══════════════════════════════════════════════════════════════════
+
+# CP1252 / Latin-1 high bytes that appear when GBK is decoded as Latin-1
+_GARBLED_CHAR_RE = re.compile(r"[\x80-\xbf\xc0-\xff]")
+# Box-drawing / diacritic chars typical of encoding corruption
+_BOX_GARBLED_RE = re.compile(r"[\x80-\x9f╠-╿═-╬─-╋]")
+
+
+def _is_mojibake(text: str) -> bool:
+    """Return True if *text* looks like GBK bytes decoded as Latin-1.
+
+    Detects the typical pattern where a multi-byte Chinese encoding
+    (GBK/GB2312/GB18030) is mistakenly interpreted as a single-byte
+    Latin-1 / CP1252 encoding, producing lines like:
+    ``ú¿╩╘╨╨ú⌐┬╔╩ª░∞└φ╣·╙╨╣½╦╛...``
+    """
+    if not text or len(text) < 6:
+        return False
+    garbled = len(_GARBLED_CHAR_RE.findall(text))
+    total = len(text)
+    if total == 0:
+        return False
+    # > 30% high bytes in Latin-1 range → likely garbled
+    if garbled / total > 0.30:
+        return True
+    # 3+ box-drawing / diacritic characters → strong signal
+    if len(_BOX_GARBLED_RE.findall(text)) >= 3:
+        return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Quality filtering
 # ═══════════════════════════════════════════════════════════════════
-def _filter_quality(records: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Remove low-quality records: boilerplate-only, short+irrelevant.
+def _filter_quality(
+    records: list[dict[str, str]],
+    min_len: int = 120,
+) -> list[dict[str, str]]:
+    """Remove low-quality records: boilerplate-only, too-short, empty, or garbled.
 
     A record is removed if:
-    - It contains only generic boilerplate text (no bidding keywords)
-    - It is shorter than 120 chars
+    - It contains only generic boilerplate text
+    - It is shorter than ``min_len`` chars
     - It is empty or whitespace-only after trimming
+    - It contains mojibake (encoding corruption)
     """
     result: list[dict[str, str]] = []
     for rec in records:
@@ -308,15 +355,22 @@ def _filter_quality(records: list[dict[str, str]]) -> list[dict[str, str]]:
         if not text:
             continue
 
-        has_bidding = any(kw in text for kw in _BIDDING_KEYWORDS)
-        is_boilerplate = bool(_BOILERPLATE_RE.search(text))
-
-        # Remove if pure boilerplate with no bidding context
-        if is_boilerplate and not has_bidding:
+        # Remove garbled records (encoding corruption)
+        if _is_mojibake(text):
+            logger.warning(
+                "Dropping mojibake record (len=%d): %s…",
+                len(text), text[:80],
+            )
             continue
 
-        # Remove records shorter than 120 chars (too short for pre-training)
-        if len(text) < 120:
+        is_boilerplate = bool(_BOILERPLATE_LINE_RE.search(text))
+
+        # Remove pure boilerplate (generic legal endings with no substance)
+        if is_boilerplate:
+            continue
+
+        # Remove records shorter than min_len (too short for pre-training)
+        if len(text) < min_len:
             continue
 
         result.append(rec)
