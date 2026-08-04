@@ -3,7 +3,14 @@
 Serves the extraction API and the single-page frontend.
 """
 
+# ⚠️ torch MUST be imported before anything else.
+# PaddlePaddle's DLL loading on Windows corrupts the system DLL search path,
+# causing torch's shm.dll to fail with "找不到指定的程序" (WinError 127).
+# Loading torch first ensures its DLLs are resolved before the path is broken.
+import torch  # noqa: F401, E402
+
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,10 +28,25 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        """Startup: log output directory."""
+        logger.info(
+            "%s started — output dir: %s",
+            settings.app_name,
+            settings.output_dir.resolve(),
+        )
+        yield  # no shutdown cleanup needed
+
     app = FastAPI(
         title=settings.app_name,
-        version="1.0.0",
-        description="上传专利说明书PDF（单个或ZIP包），自动提取文本并生成JSONL格式数据，用于大模型预训练。",
+        version="1.1.0",
+        description=(
+            "上传专利说明书PDF（单个或ZIP包）或提交HTTP/HTTPS链接，"
+            "自动提取文本并生成JSONL格式数据，用于大模型预训练。"
+        ),
+        lifespan=lifespan,
     )
 
     # ── Routers ─────────────────────────────────────────────
@@ -43,15 +65,6 @@ def create_app() -> FastAPI:
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     async def index():
         return HTMLResponse(_index_html)
-
-    # ── Lifespan ────────────────────────────────────────────
-    @app.on_event("startup")
-    async def startup():
-        logger.info(
-            "%s started — output dir: %s",
-            settings.app_name,
-            settings.output_dir.resolve(),
-        )
 
     return app
 

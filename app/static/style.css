@@ -338,6 +338,65 @@ footer {
   text-align: center;
 }
 
+/* ── Tabs ─────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 10px 8px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: var(--color-text);
+}
+
+.tab-btn.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ── Tool panels ──────────────────────────── */
+.tool-panel {
+  display: none;
+}
+
+.tool-panel.active {
+  display: block;
+}
+
+.tool-desc {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-primary);
+}
+
+/* ── Result meta ───────────────────────────── */
+.result-meta {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  margin-bottom: 10px;
+}
+
 /* ── Responsive ───────────────────────────── */
 @media (max-width: 520px) {
   body {
@@ -351,5 +410,9 @@ footer {
   }
   .drop-zone {
     padding: 28px 14px;
+  }
+  .tab-btn {
+    font-size: 0.8rem;
+    padding: 8px 4px;
   }
 }
