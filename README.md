@@ -26,6 +26,15 @@
 - 📏 **智能分段**：按条款编号（6.1.1）分割 + 长短片合并控制
 - 🐳 **Docker 一键部署**
 
+### 法规模式（新增）
+
+- 📄 **上传单个 PDF 或 HTML** → 即时提取 → 下载 JSONL
+- 📦 **上传 ZIP 压缩包**（内含混合 PDF + HTML）→ 后台并行处理 → 下载合并 JSONL
+- 🔍 **格式自动识别**：`.pdf` → PyMuPDF 直接文本提取，`.html`/`.htm` → BeautifulSoup 正文解析
+- 🧹 **10 阶段清洗流水线**：文本规范化（BOM/零宽字符/Unicode空格）+ 行级噪声清洗 + 页眉页脚 + 编号附着 + 元数据删除 + 段落去重 + 行断裂合并 + 法规结构解析 + 条文分块
+- 🎯 **智能保留过滤**：自动丢弃联系方式（电话/邮箱/地址）、附件壳、元数据壳、短公告等非实质性记录，保留含第X条/编号条目/长文本的法规正文
+- 📏 **长度控制**：50~2000 字符
+
 ---
 
 ## 输出格式
@@ -46,6 +55,13 @@
 {"text": "3.1 城市绿地 urban green space 城市各类绿地范围的总称。", "category": "术语和定义"}
 {"text": "6.1.1 种植土应疏松透气，pH 值应在 6.5 至 7.5 之间。", "category": "技术要求"}
 {"text": "GB/T 50001—2024 房屋建筑制图统一标准", "category": "参考文献"}
+```
+
+### 法规模式示例
+
+```json
+{"text": "第一条 为了规范行政处罚的设定和实施，保障和监督行政机关有效实施行政管理，维护公共利益和社会秩序，保护公民、法人或者其他组织的合法权益，根据宪法，制定本法。", "category": "法律法规"}
+{"text": "第五条 行政处罚遵循公正、公开的原则。设定和实施行政处罚必须以事实为依据，与违法行为的事实、性质、情节以及社会危害程度相当。对违法行为给予行政处罚的规定必须公布；未经公布的，不得作为行政处罚的依据。", "category": "法律法规"}
 ```
 
 ### 标准模式支持的类别
@@ -81,7 +97,7 @@ uvicorn app.main:app --reload --port 8686
 open http://localhost:8686
 ```
 
-浏览器打开 `http://localhost:8686`，选择「专利」或「标准」模式。
+浏览器打开 `http://localhost:8686`，选择「专利」「标准」或「法规」模式。
 
 ### 方式二：Docker 部署
 
@@ -135,8 +151,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8686
 ## 使用说明
 
 1. 打开浏览器访问 `http://localhost:8686`（端口转发后）
-2. 拖拽或点击选择 PDF / ZIP 文件
-3. 选择「专利」或「标准」模式
+2. 拖拽或点击选择 PDF / HTML / ZIP 文件
+3. 选择「专利」「标准」或「法规」模式
 4. 点击「开始提取」
 5. 等待处理完成，下载 JSONL 文件
 6. 文件会保存一份在 `outputs/` 目录下
@@ -201,13 +217,54 @@ uvicorn app.main:app --host 0.0.0.0 --port 8686
 - **套话**：本文件按照 GB/T 1.1 给出的规则起草、起草单位等
 - **孤立噪声**：单字符、标点行、表格残留线、序号碎片
 
+### 法规模式
+
+文本经过 10 阶段清洗 + 记录级智能过滤：
+
+| 阶段 | 处理 | 说明 |
+|------|------|------|
+| 1 | 文本提取 | PDF: PyMuPDF 直接提取 / HTML: BeautifulSoup 正文解析 |
+| — | 文本规范化 | 去除 BOM、零宽字符、Unicode 空格、控制字符，解码 HTML 实体 |
+| 2 | 行级清洗 | 去除封面、发文字号/令号、日期行、页码、水印、公司署名、目录 |
+| 3 | 页眉页脚块移除 | 连续 2+ 行的页脚模式行整体删除 |
+| 4 | 编号附着 | "第X条\n内容" → "第X条 内容" |
+| 5 | 元数据删除 | 通过信息、修订声明、施行套话、签署行 |
+| 6 | 段落去重 | 相邻相似段落 Jaccard 去重 |
+| 7 | 行断裂合并 | 重建被 PDF 截断的中文句子 |
+| 8-9 | 条文分块 | 按第X条边界切分，短条合并，长条拆分，支持编号条目分块 |
+| 10 | 质量过滤 | 联系方式/附件壳/元数据壳丢弃，条文/编号/长文本保留，bigram 全局去重 |
+
+#### 保留与丢弃规则
+
+| 信号 | 处理 |
+|------|------|
+| 出现电话号码（座机/手机）/ 邮箱 / 地址 + 无第X条 | 丢弃 |
+| "附件" + 链接 + 中文 < 80 | 丢弃 |
+| 元数据标记（颁布日期/实施日期/【全文】等）+ 无第X条 + 中文 < 500 | 丢弃 |
+| 含"第X条"或"第X章" | 保留 |
+| 2+ 编号条目（阿拉伯/中文数字）+ 中文 ≥ 50 | 保留 |
+| 中文 ≥ 120 + 有实质法律内容 | 保留 |
+
+#### 去除的噪声类型
+
+- **规范化**：BOM（U+FEFF）、零宽字符、不间断空格、全角空格、行/段分隔符、控制字符、HTML 实体
+- **封面元数据**：发文字号（国发〔2023〕5号）、令号、发布日期、实施日期、发布机关
+- **通过/修订信息**：会议通过日期、修正/修订声明
+- **签署行**：末尾签名（总理 XXX）+ 日期行
+- **套话**：施行条款（第X条 本法自...起施行）、废止声明
+- **公司人名**：封面处公司/机构名称和多人署名
+- **页码**：独立数字、罗马数字、带横线页码
+- **水印**：征求意见稿、草案、试行等
+- **目录行**：带省略号或页码的目录行
+
 ---
 
 ## 技术栈
 
 - **后端**: Python FastAPI
 - **OCR**: PaddleOCR v3.7+（PP-OCRv6，中文，专利模式）
-- **PDF 处理**: PyMuPDF (fitz) — 直接文本提取（标准模式）
+- **PDF 处理**: PyMuPDF (fitz) — 直接文本提取（标准/法规模式）
+- **HTML 处理**: BeautifulSoup + lxml（法规模式）
 - **并行**: `concurrent.futures.ProcessPoolExecutor`
 - **资源检测**: psutil + sysctl + /proc/meminfo（专利模式）
 - **部署**: Docker + docker-compose
@@ -218,20 +275,23 @@ uvicorn app.main:app --host 0.0.0.0 --port 8686
 
 ```
 ├── app/
-│   ├── main.py                 # FastAPI 入口
-│   ├── config.py               # 配置 + 资源检测 + 并行规划
-│   ├── routers/extraction.py   # API 端点 + 并行 Worker
+│   ├── main.py                     # FastAPI 入口
+│   ├── config.py                   # 配置 + 资源检测 + 并行规划
+│   ├── routers/extraction.py       # API 端点 + 并行 Worker
 │   ├── services/
-│   │   ├── pdf_extractor.py    # PDF→PNG 图像 (PyMuPDF)
-│   │   ├── ocr_engine.py       # PaddleOCR 封装（支持独立实例）
-│   │   └── text_processor.py   # 多阶段清洗 + 分段 + 质量过滤
-│   ├── schemas/models.py       # 数据模型
-│   ├── templates/index.html    # 前端页面
-│   └── static/style.css        # 样式
-├── uploads/                    # 临时上传（gitignored）
-├── outputs/                    # 输出 JSONL（gitignored）
+│   │   ├── pdf_extractor.py        # PDF→PNG 图像 (PyMuPDF)
+│   │   ├── ocr_engine.py           # PaddleOCR 封装（支持独立实例）
+│   │   ├── text_processor.py       # 专利文本多阶段清洗 + 分段 + 质量过滤
+│   │   ├── standard_processor.py   # 标准文本 10 阶段清洗流水线
+│   │   └── regulation_processor.py # 法规文本 10 阶段清洗 + 记录级智能过滤
+│   ├── schemas/models.py           # 数据模型
+│   ├── templates/index.html        # 前端页面
+│   └── static/style.css            # 样式
+├── uploads/                        # 临时上传（gitignored）
+├── outputs/                        # 输出 JSONL（gitignored）
 ├── tests/
-│   └── test_text_processor.py  # 31 个单元测试
+│   ├── test_text_processor.py      # 专利文本处理单元测试
+│   └── test_standard_processor.py  # 标准文本处理单元测试
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt
