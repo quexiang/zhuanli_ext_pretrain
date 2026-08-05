@@ -22,6 +22,7 @@ from app.schemas.models import ErrorResponse, ExtractResponse, TaskStatus
 from app.services.pdf_extractor import extract_page_images
 from app.services.ocr_engine import OCREngine
 from app.services.standard_processor import process_pdf_bytes as _process_standards
+from app.services.regulation_processor import process_regulation_bytes as _process_regulations
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,25 @@ def _process_standards_worker(pdf_bytes: bytes) -> list[dict[str, str]]:
     return _process_standards(
         pdf_bytes,
         chunk_size=settings.standard_chunk_size,
+        max_workers=parallel_config.max_workers,
+    )
+
+
+# ── Regulation worker ────────────────────────────────────────────
+def _process_regulation_worker(args: tuple[bytes, str]) -> list[dict[str, str]]:
+    """Process a single regulation file (PDF or HTML) in a subprocess worker.
+
+    Args:
+        args: Tuple of ``(file_bytes, file_format)`` where file_format is
+              ``"pdf"`` or ``"html"``.
+    """
+    file_bytes, file_format = args
+    return _process_regulations(
+        file_bytes,
+        file_format=file_format,
+        chunk_size=settings.regulation_chunk_size,
+        min_chunk_len=settings.regulation_min_chunk_len,
+        max_chunk_len=settings.regulation_max_chunk_len,
         max_workers=parallel_config.max_workers,
     )
 
@@ -338,6 +358,182 @@ def _process_standards_zip_background(task_id: str, zip_path: Path):
         status.status = "failed"
         status.error = str(exc)
         logger.exception("Background standards ZIP processing failed.")
+    finally:
+        try:
+            zip_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Regulation endpoints & handlers (PDF + HTML, mixed ZIP support)
+# ═══════════════════════════════════════════════════════════════════
+@router.post(
+    "/extract-regulations",
+    response_model=ExtractResponse | TaskStatus,
+    responses={400: {"model": ErrorResponse}, 413: {"model": ErrorResponse}},
+)
+async def extract_regulations(
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,
+):
+    """Upload a single regulation file or ZIP archive for text extraction.
+
+    - **Single file**: supports ``.pdf``, ``.html``, ``.htm``.
+    - **ZIP archive**: may contain a mix of PDF and HTML files.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided.")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".pdf", ".html", ".htm", ".zip"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file type. Only .pdf, .html, .htm, and .zip are accepted.",
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Empty file.")
+
+    if len(content) > settings.max_file_size:
+        raise HTTPException(status_code=413, detail="File exceeds 500 MB limit.")
+
+    if ext == ".zip":
+        return _handle_regulations_zip_upload(
+            content, file.filename, background_tasks
+        )
+    # Single file: determine format from extension
+    file_format = "html" if ext in (".html", ".htm") else "pdf"
+    return await _handle_single_regulation(content, file.filename, file_format)
+
+
+# ── Regulation handlers ──────────────────────────────────────────
+async def _handle_single_regulation(
+    content: bytes,
+    filename: str,
+    file_format: str,
+) -> ExtractResponse:
+    """Process a single regulation file asynchronously.
+
+    Offloaded to the shared process pool so the async event loop
+    is not blocked by CPU-intensive processing.
+    """
+    from app.services.text_processor import write_jsonl
+
+    loop = asyncio.get_event_loop()
+    records = await loop.run_in_executor(
+        _get_shared_executor(),
+        _process_regulation_worker,
+        (content, file_format),
+    )
+
+    if not records:
+        raise HTTPException(
+            status_code=400,
+            detail="No extractable text found in the regulation document.",
+        )
+
+    stem = Path(filename).stem
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"reg_{stem}_{ts}.jsonl"
+    out_path = settings.output_dir / out_name
+    write_jsonl(records, out_path)
+
+    return ExtractResponse(
+        filename=out_name,
+        record_count=len(records),
+        preview=records[:3],
+    )
+
+
+def _handle_regulations_zip_upload(
+    content: bytes,
+    filename: str,
+    background_tasks: BackgroundTasks | None,
+) -> TaskStatus:
+    """Start background processing for a ZIP archive of regulations (mixed PDF+HTML)."""
+    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
+    with open(zip_path, "wb") as f:
+        f.write(content)
+
+    task_id = uuid.uuid4().hex
+    status = TaskStatus(task_id=task_id, status="processing")
+    _task_store[task_id] = status
+
+    if background_tasks:
+        background_tasks.add_task(
+            _process_regulations_zip_background, task_id, zip_path
+        )
+    else:
+        _process_regulations_zip_background(task_id, zip_path)
+
+    return status
+
+
+def _process_regulations_zip_background(task_id: str, zip_path: Path):
+    """Background task: process mixed PDF+HTML files in parallel."""
+    from app.services.text_processor import write_jsonl
+
+    status = _task_store[task_id]
+    files_to_process: list[tuple[str, bytes, str]] = []  # (name, bytes, format)
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            for name in zf.namelist():
+                ext = Path(name).suffix.lower()
+                if ext == ".pdf":
+                    files_to_process.append((name, zf.read(name), "pdf"))
+                elif ext in (".html", ".htm"):
+                    files_to_process.append((name, zf.read(name), "html"))
+
+        if not files_to_process:
+            status.status = "failed"
+            status.error = "ZIP contains no PDF or HTML files."
+            return
+
+        status.total_files = len(files_to_process)
+        status.processed_files = 0
+
+        all_records: list[dict[str, str]] = []
+        executor = _get_shared_executor()
+        futures = {
+            executor.submit(_process_regulation_worker, (fbytes, fmt)): fname
+            for fname, fbytes, fmt in files_to_process
+        }
+
+        from concurrent.futures import as_completed
+
+        for future in as_completed(futures):
+            fname = futures[future]
+            try:
+                records = future.result()
+                all_records.extend(records)
+            except Exception as exc:
+                logger.error("Regulation worker failed for %s: %s", fname, exc)
+            status.processed_files += 1
+            status.current_file = Path(fname).name
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_name = f"batch_reg_{Path(zip_path).stem}_{ts}.jsonl"
+        out_path = settings.output_dir / out_name
+        if all_records:
+            write_jsonl(all_records, out_path)
+        else:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write("")
+
+        status.status = "completed"
+        status.record_count = len(all_records)
+        status.output_filename = out_name
+
+    except zipfile.BadZipFile:
+        status.status = "failed"
+        status.error = "Invalid ZIP file."
+    except Exception as exc:
+        status.status = "failed"
+        status.error = str(exc)
+        logger.exception("Background regulations ZIP processing failed.")
     finally:
         try:
             zip_path.unlink(missing_ok=True)

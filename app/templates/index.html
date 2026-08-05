@@ -35,6 +35,11 @@
         <span class="label-text">📋 标准</span>
         <span class="desc">文本提取 + 章节解析（支持 ZIP）</span>
       </label>
+      <label class="doc-type-btn" data-type="regulation">
+        <input type="radio" name="docType" value="regulation">
+        <span class="label-text">⚖️ 法规</span>
+        <span class="desc">PDF+HTML提取 + 清洗分段</span>
+      </label>
     </div>
 
     <!-- Selected file info -->
@@ -116,10 +121,14 @@
         btn.classList.add('active');
 
         // All types support PDF and ZIP
-        fileInput.setAttribute('accept', '.pdf,.zip');
-        if (docType === 'standard') {
+        if (docType === 'regulation') {
+          fileInput.setAttribute('accept', '.pdf,.html,.htm,.zip');
+          btnSubmit.textContent = '开始提取法规';
+        } else if (docType === 'standard') {
+          fileInput.setAttribute('accept', '.pdf,.zip');
           btnSubmit.textContent = '开始提取标准';
         } else {
+          fileInput.setAttribute('accept', '.pdf,.zip');
           btnSubmit.textContent = '开始提取专利';
         }
 
@@ -128,8 +137,15 @@
 
       // ── Helpers ─────────────────────────────────────────
       function _getApiEndpoint(docType) {
+        if (docType === 'regulation') return '/api/extract-regulations';
         if (docType === 'standard') return '/api/extract-standards';
         return '/api/extract';
+      }
+
+      function _btnLabel(docType) {
+        if (docType === 'regulation') return '开始提取法规';
+        if (docType === 'standard') return '开始提取标准';
+        return '开始提取专利';
       }
 
       function formatSize(bytes) {
@@ -163,8 +179,13 @@
       function selectFile(file) {
         if (!file) return;
         const ext = file.name.split('.').pop().toLowerCase();
-        if (ext !== 'pdf' && ext !== 'zip') {
-          setError('仅支持 .pdf 和 .zip 文件格式。');
+        const allowedExts = docType === 'regulation'
+          ? ['pdf', 'html', 'htm', 'zip']
+          : ['pdf', 'zip'];
+        if (!allowedExts.includes(ext)) {
+          setError(docType === 'regulation'
+            ? '仅支持 .pdf、.html、.htm 和 .zip 文件格式。'
+            : '仅支持 .pdf 和 .zip 文件格式。');
           return;
         }
         selectedFile = file;
@@ -172,7 +193,9 @@
         fileSize.textContent = formatSize(file.size);
         show(fileInfo);
         btnSubmit.disabled = false;
-        if (docType === 'standard') {
+        if (docType === 'regulation') {
+          btnSubmit.textContent = '开始提取法规';
+        } else if (docType === 'standard') {
           btnSubmit.textContent = '开始提取标准';
         } else {
           btnSubmit.textContent = '开始提取专利';
@@ -225,7 +248,9 @@
 
         if (isZip) {
           show(progressBar);
-          if (docType === 'standard') {
+          if (docType === 'regulation') {
+            statusMessage.textContent = '正在处理法规文档…';
+          } else if (docType === 'standard') {
             statusMessage.textContent = '正在处理标准文档…';
           } else {
             statusMessage.textContent = '正在解压并处理 ZIP 文件…';
@@ -246,7 +271,7 @@
           if (!res.ok) {
             setError(data.error || data.detail || '请求失败');
             btnSubmit.disabled = false;
-            btnSubmit.textContent = '开始提取';
+            btnSubmit.textContent = _btnLabel(docType);
             return;
           }
 
@@ -264,7 +289,7 @@
         } finally {
           if (!isZip) {
             btnSubmit.disabled = false;
-            btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
+            btnSubmit.textContent = _btnLabel(docType);
           }
         }
       });
@@ -281,7 +306,7 @@
               pollTimer = null;
               setError(data.error || '查询状态失败');
               btnSubmit.disabled = false;
-              btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
+              btnSubmit.textContent = _btnLabel(docType);
               return;
             }
 
@@ -289,7 +314,9 @@
             if (data.total_files > 0) {
               const pct = Math.round((data.processed_files / data.total_files) * 100);
               progressFill.style.width = pct + '%';
-              if (docType === 'standard') {
+              if (docType === 'regulation') {
+                statusMessage.textContent = `正在处理法规… ${data.processed_files}/${data.total_files}`;
+              } else if (docType === 'standard') {
                 statusMessage.textContent = `正在处理标准… ${data.processed_files}/${data.total_files}`;
               } else {
                 statusMessage.textContent = `正在处理… ${data.processed_files}/${data.total_files}`;
@@ -311,20 +338,20 @@
                 record_count: data.record_count,
               });
               btnSubmit.disabled = false;
-              btnSubmit.textContent = '开始提取';
+              btnSubmit.textContent = _btnLabel(docType);
             } else if (data.status === 'failed') {
               clearInterval(pollTimer);
               pollTimer = null;
               setError(data.error || '处理失败');
               btnSubmit.disabled = false;
-              btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
+              btnSubmit.textContent = _btnLabel(docType);
             }
           } catch (err) {
             clearInterval(pollTimer);
             pollTimer = null;
             setError('轮询失败：' + err.message);
             btnSubmit.disabled = false;
-            btnSubmit.textContent = docType === 'standard' ? '开始提取标准' : '开始提取专利';
+            btnSubmit.textContent = _btnLabel(docType);
           }
         }, 1500);
       }

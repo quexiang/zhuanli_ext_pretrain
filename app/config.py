@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     segment_max_len: int = 2000
     category: str = "专利文献"
     standard_chunk_size: int = 150
+    regulation_chunk_size: int = 150
+    regulation_min_chunk_len: int = 50
+    regulation_max_chunk_len: int = 2000
+    regulation_category: str = "法律法规"
 
 
 settings = Settings()
@@ -329,6 +333,15 @@ class ParallelPlanner:
         config.strategy = "cpu_multiprocess"
 
         return config
+
+    @staticmethod
+    def plan_regulation(info: ResourceInfo) -> ParallelConfig:
+        """Compute optimal parallelism for regulation-document processing.
+
+        Regulation processing is identical to standards in resource profile
+        (no PaddleOCR — direct text extraction only), so reuses plan_standard.
+        """
+        return ParallelPlanner.plan_standard(info)
 
 
 # ═══════════════════════════════════════════════════════════════════
