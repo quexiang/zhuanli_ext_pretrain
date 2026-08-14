@@ -1,0 +1,12 @@
+services:
+  patent-extractor:
+    build: .
+    container_name: patent-jsonl-extractor
+    ports:
+      - "8686:8686"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+    environment:
+      - MAX_FILE_SIZE=524288000
+    restart: unless-stopped
