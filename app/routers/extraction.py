@@ -7,7 +7,7 @@ import logging
 import multiprocessing
 import uuid
 import zipfile
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -329,34 +329,48 @@ async def _handle_standards_zip_upload_streamed(
 
 
 def _process_standards_zip_background(task_id: str, zip_path: Path):
-    """Background task: process all PDFs inside the ZIP in parallel."""
+    """Background task: process all PDFs inside the ZIP file.
+
+    Reads each PDF from the ZIP one-at-a-time to avoid holding the entire
+    archive in memory — critical for large archives.
+    """
+    from concurrent.futures import as_completed
+
     from app.services.text_processor import write_jsonl
 
     status = _task_store[task_id]
-    pdf_files: list[tuple[str, bytes]] = []
+    pdf_names: list[str] = []
 
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
             for name in zf.namelist():
                 if name.lower().endswith(".pdf"):
-                    pdf_files.append((name, zf.read(name)))
+                    pdf_names.append(name)
 
-        if not pdf_files:
+        if not pdf_names:
             status.status = "failed"
             status.error = "ZIP contains no PDF files."
             return
 
-        status.total_files = len(pdf_files)
+        status.total_files = len(pdf_names)
         status.processed_files = 0
 
         all_records: list[dict[str, str]] = []
         executor = _get_shared_executor()
-        futures = {
-            executor.submit(_process_standards_worker, pdf_bytes): pdf_name
-            for pdf_name, pdf_bytes in pdf_files
-        }
 
-        from concurrent.futures import as_completed
+        def _process_one(name: str) -> list[dict[str, str]]:
+            """Read one PDF from the ZIP, process it, release memory."""
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                pdf_bytes = zf.read(name)
+            try:
+                return _process_standards_worker(pdf_bytes)
+            finally:
+                del pdf_bytes  # force memory release
+
+        futures = {
+            executor.submit(_process_one, name): name
+            for name in pdf_names
+        }
 
         for future in as_completed(futures):
             pdf_name = futures[future]
