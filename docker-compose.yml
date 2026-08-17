@@ -3,10 +3,19 @@ services:
     build: .
     container_name: patent-jsonl-extractor
     ports:
-      - "8686:8686"
+      - "8686:8021"
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs
     environment:
       - MAX_FILE_SIZE=524288000
+    # Requires nvidia-container-toolkit on the host
+    # (Windows: Docker Desktop + WSL2 with GPU support)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     restart: unless-stopped

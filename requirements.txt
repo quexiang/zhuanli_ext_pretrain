@@ -1,9 +1,13 @@
+--extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/
 fastapi>=0.100.0
 uvicorn[standard]>=0.20.0
 python-multipart>=0.0.6
 PyMuPDF>=1.23.0
-paddlepaddle>=3.2.0
-paddleocr>=2.7.0
+# GPU build of PaddlePaddle (CUDA 11.8) — CPU `paddlepaddle` package would
+# silently run inference on CPU only.  Requires an NVIDIA GPU + driver.
+paddlepaddle-gpu==3.2.0
+# Code uses the 3.x API (predict(), OCRResult.rec_texts).  Do not allow 2.x.
+paddleocr>=3.2.0,<3.3
 Pillow>=10.0.0
 pydantic>=2.0.0
 pydantic-settings>=2.0.0

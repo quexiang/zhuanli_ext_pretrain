@@ -31,7 +31,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
     app_name: str = "专利说明书文本提取工具"
-    max_file_size: int = 2 * 1024 * 1024 * 1024  # 2GB
+    max_file_size: int = 10 * 1024 * 1024 * 1024  # 10GB
     upload_dir: Path = Path("uploads")
     output_dir: Path = Path("outputs")
     ocr_dpi: int = 200

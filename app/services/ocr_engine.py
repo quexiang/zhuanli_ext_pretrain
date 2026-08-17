@@ -14,6 +14,8 @@ import os
 import numpy as np
 from PIL import Image
 
+from app.config import resource_info
+
 # ── Work around Windows PaddlePaddle PIR + oneDNN compiler bugs ──
 #   FLAGS_enable_pir_api=0  →  disable new PIR executor; fall back to old
 #   FLAGS_use_onednn_op=0   →  disable oneDNN in both old and new executors
@@ -74,13 +76,20 @@ class OCREngine:
 
             from paddleocr import PaddleOCR
 
+            # Pick the inference device from runtime detection.  paddle_backend
+            # is "gpu" whenever PaddlePaddle is compiled with CUDA and a GPU is
+            # found.  Without an explicit device, PaddleOCR silently falls back
+            # to CPU even when a GPU is available.
+            device = "gpu" if resource_info.paddle_backend == "gpu" else "cpu"
+
             self._ocr = PaddleOCR(
                 lang="ch",                     # Simplified Chinese
                 use_textline_orientation=True,  # detect & correct rotated text
                 enable_mkldnn=False,           # work around PaddlePaddle 3.3.0+ bug
                                                #   ref: https://github.com/PaddlePaddle/Paddle/issues/77340
+                device=device,                  # explicit GPU (or CPU) device
             )
-            logger.info("PaddleOCR initialised.")
+            logger.info("PaddleOCR initialised (device=%s).", device)
         return self._ocr
 
     # ------------------------------------------------------------------

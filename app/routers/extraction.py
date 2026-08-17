@@ -134,6 +134,25 @@ def _process_regulation_worker(args: tuple[bytes, str]) -> list[dict[str, str]]:
 # ═══════════════════════════════════════════════════════════════════
 # Endpoints
 # ═══════════════════════════════════════════════════════════════════
+_CHUNK_SIZE = 64 * 1024 * 1024  # 64 MB chunks for streaming upload
+
+
+async def _stream_upload_to_disk(file: UploadFile, filename: str) -> Path:
+    """Stream an uploaded file directly to disk to avoid OOM with large files.
+
+    ``file.file`` is a sync file-like object (SpooledTemporaryFile), so
+    we wrap .read() in ``asyncio.to_thread`` to avoid blocking the event loop.
+    """
+    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
+    with open(zip_path, "wb") as f:
+        while True:
+            chunk = await asyncio.to_thread(file.file.read, _CHUNK_SIZE)
+            if not chunk:
+                break
+            f.write(chunk)
+    return zip_path
+
+
 @router.post(
     "/extract",
     response_model=ExtractResponse | TaskStatus,
@@ -146,7 +165,8 @@ async def extract_pdfs(
     """Upload a single PDF or a ZIP archive of PDFs for text extraction.
 
     - **Single PDF**: processed asynchronously in the shared process pool.
-    - **ZIP archive**: processed in the background with multi-process parallelism.
+    - **ZIP archive**: streamed to disk to avoid holding the full upload in memory,
+      then processed in the background with multi-process parallelism.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided.")
@@ -158,15 +178,16 @@ async def extract_pdfs(
             detail="Unsupported file type. Only .pdf and .zip are accepted.",
         )
 
+    if ext == ".zip":
+        return await _handle_zip_upload_streamed(file, background_tasks)
+    # Single PDF: read into memory (files are typically a few MB)
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file.")
-
     if len(content) > settings.max_file_size:
-        raise HTTPException(status_code=413, detail="File exceeds 2 GB limit.")
-
-    if ext == ".zip":
-        return _handle_zip_upload(content, file.filename, background_tasks)
+        raise HTTPException(
+            status_code=413, detail=f"File exceeds {settings.max_file_size // 1024 // 1024 // 1024} GB limit."
+        )
     return await _handle_single_pdf(content, file.filename)
 
 
@@ -220,16 +241,17 @@ async def extract_standards(
             detail="Unsupported file type. Only .pdf and .zip are accepted.",
         )
 
+    if ext == ".zip":
+        return await _handle_standards_zip_upload_streamed(
+            file, background_tasks
+        )
+    # Single file: read into memory (standards files are typically a few MB)
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file.")
-
     if len(content) > settings.max_file_size:
-        raise HTTPException(status_code=413, detail="File exceeds 2 GB limit.")
-
-    if ext == ".zip":
-        return _handle_standards_zip_upload(
-            content, file.filename, background_tasks
+        raise HTTPException(
+            status_code=413, detail=f"File exceeds {settings.max_file_size // 1024 // 1024 // 1024} GB limit."
         )
     return await _handle_single_standard(content, file.filename)
 
@@ -275,15 +297,14 @@ async def _handle_single_standard(
 
 
 def _handle_standards_zip_upload(
-    content: bytes,
-    filename: str,
+    zip_path: Path,
     background_tasks: BackgroundTasks | None,
 ) -> TaskStatus:
-    """Start background processing for a ZIP archive of standards."""
-    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
-    with open(zip_path, "wb") as f:
-        f.write(content)
+    """Start background processing for a ZIP archive of standards.
 
+    ``zip_path`` is the on-disk location — the endpoint streams the
+    upload directly to disk to avoid OOM with large archives.
+    """
     task_id = uuid.uuid4().hex
     status = TaskStatus(task_id=task_id, status="processing")
     _task_store[task_id] = status
@@ -296,6 +317,15 @@ def _handle_standards_zip_upload(
         _process_standards_zip_background(task_id, zip_path)
 
     return status
+
+
+async def _handle_standards_zip_upload_streamed(
+    file: UploadFile,
+    background_tasks: BackgroundTasks | None,
+) -> TaskStatus:
+    """Stream upload to disk then schedule standards ZIP background processing."""
+    zip_path = await _stream_upload_to_disk(file, file.filename)
+    return _handle_standards_zip_upload(zip_path, background_tasks)
 
 
 def _process_standards_zip_background(task_id: str, zip_path: Path):
@@ -392,18 +422,18 @@ async def extract_regulations(
             detail="Unsupported file type. Only .pdf, .html, .htm, and .zip are accepted.",
         )
 
+    if ext == ".zip":
+        return await _handle_regulations_zip_upload_streamed(
+            file, background_tasks
+        )
+    # Single file: read into memory
     content = await file.read()
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file.")
-
     if len(content) > settings.max_file_size:
-        raise HTTPException(status_code=413, detail="File exceeds 2 GB limit.")
-
-    if ext == ".zip":
-        return _handle_regulations_zip_upload(
-            content, file.filename, background_tasks
+        raise HTTPException(
+            status_code=413, detail=f"File exceeds {settings.max_file_size // 1024 // 1024 // 1024} GB limit."
         )
-    # Single file: determine format from extension
     file_format = "html" if ext in (".html", ".htm") else "pdf"
     return await _handle_single_regulation(content, file.filename, file_format)
 
@@ -448,15 +478,14 @@ async def _handle_single_regulation(
 
 
 def _handle_regulations_zip_upload(
-    content: bytes,
-    filename: str,
+    zip_path: Path,
     background_tasks: BackgroundTasks | None,
 ) -> TaskStatus:
-    """Start background processing for a ZIP archive of regulations (mixed PDF+HTML)."""
-    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
-    with open(zip_path, "wb") as f:
-        f.write(content)
+    """Start background processing for a ZIP archive of regulations (mixed PDF+HTML).
 
+    ``zip_path`` is the on-disk location — the endpoint streams the
+    upload directly to disk to avoid OOM with large archives.
+    """
     task_id = uuid.uuid4().hex
     status = TaskStatus(task_id=task_id, status="processing")
     _task_store[task_id] = status
@@ -469,6 +498,15 @@ def _handle_regulations_zip_upload(
         _process_regulations_zip_background(task_id, zip_path)
 
     return status
+
+
+async def _handle_regulations_zip_upload_streamed(
+    file: UploadFile,
+    background_tasks: BackgroundTasks | None,
+) -> TaskStatus:
+    """Stream upload to disk then schedule regulations ZIP background processing."""
+    zip_path = await _stream_upload_to_disk(file, file.filename)
+    return _handle_regulations_zip_upload(zip_path, background_tasks)
 
 
 def _process_regulations_zip_background(task_id: str, zip_path: Path):
@@ -597,15 +635,15 @@ async def _handle_single_pdf(
 # ZIP upload & background processing
 # ═══════════════════════════════════════════════════════════════════
 def _handle_zip_upload(
-    content: bytes,
-    filename: str,
+    zip_path: Path,
     background_tasks: BackgroundTasks | None,
 ) -> TaskStatus:
-    """Start background processing for a ZIP archive."""
-    zip_path = settings.upload_dir / f"{uuid.uuid4().hex}_{filename}"
-    with open(zip_path, "wb") as f:
-        f.write(content)
+    """Start background processing for a ZIP archive.
 
+    ``zip_path`` is the on-disk location of the uploaded ZIP — the
+    endpoint streams the upload directly to disk to avoid OOM with
+    multi-gigabyte archives.
+    """
     task_id = uuid.uuid4().hex
     status = TaskStatus(task_id=task_id, status="processing")
     _task_store[task_id] = status
@@ -616,6 +654,15 @@ def _handle_zip_upload(
         _process_zip_background(task_id, zip_path)
 
     return status
+
+
+async def _handle_zip_upload_streamed(
+    file: UploadFile,
+    background_tasks: BackgroundTasks | None,
+) -> TaskStatus:
+    """Stream upload to disk then schedule ZIP background processing."""
+    zip_path = await _stream_upload_to_disk(file, file.filename)
+    return _handle_zip_upload(zip_path, background_tasks)
 
 
 def _process_zip_background(task_id: str, zip_path: Path):
