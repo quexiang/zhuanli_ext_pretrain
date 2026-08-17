@@ -112,6 +112,12 @@ docker compose logs -f
 docker compose down
 ```
 
+**GPU 加速**：在 NVIDIA GPU 主机上运行需先安装 [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，docker-compose.yml 已内置 GPU 设备注入配置，容器启动时自动检测并使用 GPU。
+
+**端口映射**：容器内部运行在 8021 端口，映射到宿主机 8686 端口。外部访问使用 `http://localhost:8686`。
+
+**文件大小限制**：默认最大上传 10 GB。可通过环境变量 `MAX_FILE_SIZE` 调整（默认 500 MB）。
+
 ### 方式三：在远程服务器运行，NAS 上显示页面
 
 程序运行在远程服务器 `59.79.241.152` 上，通过 SSH 端口转发将服务映射到 NAS 本地访问。
@@ -262,12 +268,12 @@ uvicorn app.main:app --host 0.0.0.0 --port 8686
 ## 技术栈
 
 - **后端**: Python FastAPI
-- **OCR**: PaddleOCR v3.7+（PP-OCRv6，中文，专利模式）
+- **OCR**: PaddleOCR v3.2+（PP-OCRv6，中文，专利模式，支持 GPU 推理）
 - **PDF 处理**: PyMuPDF (fitz) — 直接文本提取（标准/法规模式）
 - **HTML 处理**: BeautifulSoup + lxml（法规模式）
 - **并行**: `concurrent.futures.ProcessPoolExecutor`
 - **资源检测**: psutil + sysctl + /proc/meminfo（专利模式）
-- **部署**: Docker + docker-compose
+- **部署**: Docker + docker-compose（支持 GPU 加速，需 nvidia-container-toolkit）
 
 ---
 
