@@ -3,7 +3,7 @@ services:
     build: .
     container_name: patent-jsonl-extractor
     ports:
-      - "8686:8021"
+      - "8021:8021"
     volumes:
       - ./uploads:/app/uploads
       - ./outputs:/app/outputs

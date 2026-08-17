@@ -91,13 +91,13 @@
 pip install -r requirements.txt
 
 # 启动服务
-uvicorn app.main:app --reload --port 8686
+uvicorn app.main:app --reload --port 8021
 
 # 打开浏览器
-open http://localhost:8686
+open http://localhost:8021
 ```
 
-浏览器打开 `http://localhost:8686`，选择「专利」「标准」或「法规」模式。
+浏览器打开 `http://localhost:8021`，选择「专利」「标准」或「法规」模式。
 
 ### 方式二：Docker 部署
 
@@ -114,7 +114,7 @@ docker compose down
 
 **GPU 加速**：在 NVIDIA GPU 主机上运行需先安装 [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，docker-compose.yml 已内置 GPU 设备注入配置，容器启动时自动检测并使用 GPU。
 
-**端口映射**：容器内部运行在 8021 端口，映射到宿主机 8686 端口。外部访问使用 `http://localhost:8686`。
+**端口映射**：容器内部运行在 8021 端口，映射到宿主机 8021 端口。外部访问使用 `http://localhost:8021`。
 
 **文件大小限制**：默认最大上传 10 GB。可通过环境变量 `MAX_FILE_SIZE` 调整（默认 500 MB）。
 
@@ -130,7 +130,7 @@ docker compose down
 ssh root@59.79.241.152
 cd /root/zhuanli_ext_pretrain-main
 source venv/bin/activate
-uvicorn app.main:app --host 0.0.0.0 --port 8686
+uvicorn app.main:app --host 0.0.0.0 --port 8021
 ```
 
 **第二步：NAS 上建立端口转发**
@@ -138,25 +138,25 @@ uvicorn app.main:app --host 0.0.0.0 --port 8686
 在 NAS 上新建一个终端窗口（保持上面不关）：
 
 ```bash
-ssh -L 8686:localhost:8686 root@59.79.241.152
+ssh -L 8021:localhost:8021 root@59.79.241.152
 ```
 
 **第三步：NAS 浏览器访问**
 
-打开 NAS 上的浏览器，访问 `http://localhost:8686`。
+打开 NAS 上的浏览器，访问 `http://localhost:8021`。
 
 **端口被占用**（address already in use）：
 
 ```bash
-kill -9 $(lsof -t -i :8686)
-uvicorn app.main:app --host 0.0.0.0 --port 8686
+kill -9 $(lsof -t -i :8021)
+uvicorn app.main:app --host 0.0.0.0 --port 8021
 ```
 
 ---
 
 ## 使用说明
 
-1. 打开浏览器访问 `http://localhost:8686`（端口转发后）
+1. 打开浏览器访问 `http://localhost:8021`（端口转发后）
 2. 拖拽或点击选择 PDF / HTML / ZIP 文件
 3. 选择「专利」「标准」或「法规」模式
 4. 点击「开始提取」
