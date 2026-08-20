@@ -244,9 +244,25 @@ def write_jsonl(
 # ═══════════════════════════════════════════════════════════════════
 # Main cleaning pipeline
 # ═══════════════════════════════════════════════════════════════════
+def _has_garbled_chars(text: str) -> bool:
+    """Check if text contains garbled characters (PDF extraction artifacts)."""
+    if "�" in text:
+        return True
+    if any("̀" <= c <= "ͯ" for c in text):
+        return True
+    rare = sum(
+        1 for c in text
+        if (0x1A00 < ord(c) < 0x1B00 or 0x1300 < ord(c) < 0x137F or
+            0x2C00 < ord(c) < 0x2C6F or 0x1C80 < ord(c) < 0x1C90)
+    )
+    return rare > 5
+
+
 def clean_text(text: str) -> str:
     """Multi-stage cleaning: line joining → footer removal → noise removal."""
     if not text.strip():
+        return ""
+    if _has_garbled_chars(text):
         return ""
 
     # Stage 1: Pre-processing

@@ -412,6 +412,27 @@ def _is_toc_line(line: str) -> bool:
     return False
 
 
+def _has_garbled_chars(text: str) -> bool:
+    """Check if text contains garbled characters (PDF extraction artifacts)."""
+    # U+FFFD replacement character (font mapping failure)
+    if "�" in text:
+        return True
+    # Combining diacritical marks (U+0300–U+036F) — not valid in Chinese text
+    if any("̀" <= c <= "ͯ" for c in text):
+        return True
+    # Rare Unicode blocks (PDF image binary leakage)
+    rare = sum(
+        1 for c in text
+        if (0x1A00 < ord(c) < 0x1B00 or  # Mozinabibi
+            0x1300 < ord(c) < 0x137F or  # Ethiopic
+            0x2C00 < ord(c) < 0x2C6F or  # Gothic
+            0x1C80 < ord(c) < 0x1C90)    # Mongolian vowel vars
+    )
+    if rare > 5:
+        return True
+    return False
+
+
 def _clean_lines(text: str) -> str:
     """Stage 1-2: Line-level cleaning with multi-stage pipeline."""
     lines = text.split("\n")
@@ -420,6 +441,8 @@ def _clean_lines(text: str) -> str:
     for line in lines:
         stripped = line.strip()
 
+        if _has_garbled_chars(stripped):
+            continue
         if _is_cover_line(stripped):
             continue
         if _is_watermark(stripped):
